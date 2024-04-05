@@ -13,31 +13,31 @@ async fn read_command(stream: &mut TcpStream) -> Result<Command> {
 
     if bytes_to_read == 0 { return Ok(Command::Quit); }
 
-    let command = std::str::from_utf8(&buffer[0..bytes_to_read])?;
+    // let command = std::str::from_utf8(&buffer[0..bytes_to_read])?;
 
-    match command {
-        "*1\r\n$4\r\nPING\r\n" => Ok(Command::Ping),
-        "quit\n" => Ok(Command::Quit),
-        _ => Err(anyhow!("Unknown command"))
-    }
+    Ok(Command::Ping)
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     // println!("Logs from your program will appear here!");
-    let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:6379").await?;
 
     loop {
         let (mut socket, _) = listener.accept().await?;
 
         tokio::spawn(async move {
-            if let Ok(command) = read_command(&mut socket).await {
-                match command {
-                    Command::Ping => {
-                        socket.write(b"+PONG\r\n").await.unwrap();
-                    },
-                    Command::Quit => { }
+            loop {
+                if let Ok(command) = read_command(&mut socket).await {
+                    match command {
+                        Command::Ping => {
+                            socket.write(b"+PONG\r\n").await.unwrap();
+                        },
+                        Command::Quit => {
+                            break;
+                        }
+                    }
                 }
             }
         });
