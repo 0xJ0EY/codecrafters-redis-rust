@@ -41,7 +41,6 @@ fn main() {
                             }
                         }    
                     }
-                    stream.write(b"+PONG\r\n").unwrap();
                 }
             }
             Err(e) => {
