@@ -32,13 +32,13 @@ async fn main() -> Result<()> {
         let (mut socket, _) = listener.accept().await?;
 
         tokio::spawn(async move {
-            let command = read_command(&socket).unwrap();
-
-            match command {
-                Command::Ping => {
-                    socket.write(b"+PONG\r\n").await.unwrap();
-                },
-                Command::Quit => { }
+            if let Ok(command) = read_command(&socket) {
+                match command {
+                    Command::Ping => {
+                        socket.write(b"+PONG\r\n").await.unwrap();
+                    },
+                    Command::Quit => { }
+                }
             }
         });
     }
