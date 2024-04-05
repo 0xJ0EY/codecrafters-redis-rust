@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, sync::Arc};
 
 mod messages;
 mod commands;
@@ -6,6 +6,7 @@ mod store;
 
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
+use clap::Parser;
 use commands::{get_expiry_from_args, get_key_value_from_args};
 use messages::unpack_string;
 use store::{Entry, Store};
@@ -63,10 +64,29 @@ fn parse_command(buffer: &BytesMut) -> Result<(String, Vec<Message>)> {
     }
 } 
 
+#[derive(Parser, Debug, Clone)]
+#[clap(about, long_about = None)]
+struct CommandLineArgs {
+    #[arg(default_value = "127.0.0.1")]
+    #[clap(short, long)]
+    address: IpAddr,
+
+    #[arg(default_value = "6379")]
+    #[clap(short, long)]
+    port: u16,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args = CommandLineArgs::parse();
     let store = Arc::new(Mutex::new(Store::new()));
-    let listener = TcpListener::bind("127.0.0.1:6379").await?;
+
+    let address = (&args.address).clone();
+    let port = (&args.port).clone();
+
+    let socket_address = SocketAddr::new(address, port);
+
+    let listener = TcpListener::bind(socket_address).await?;
 
     loop {
         let (mut socket, _) = listener.accept().await?;
