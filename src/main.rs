@@ -1,6 +1,6 @@
-use std::{f32::consts::E, sync::Arc};
+use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use bytes::BytesMut;
 use messages::unpack_string;
 use store::Store;
