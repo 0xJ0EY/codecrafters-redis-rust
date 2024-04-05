@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use tokio::{io::{AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
 #[derive(Debug)]
 enum Command {
@@ -7,9 +7,9 @@ enum Command {
     Quit
 }
 
-fn read_command(stream: &TcpStream) -> Result<Command> {
+async fn read_command(stream: &mut TcpStream) -> Result<Command> {
     let mut buffer = [0; 512];
-    let bytes_to_read = stream.try_read(&mut buffer)?;
+    let bytes_to_read = stream.read(&mut buffer).await.unwrap();
 
     if bytes_to_read == 0 { return Ok(Command::Quit); }
 
@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
         let (mut socket, _) = listener.accept().await?;
 
         tokio::spawn(async move {
-            if let Ok(command) = read_command(&socket) {
+            if let Ok(command) = read_command(&mut socket).await {
                 match command {
                     Command::Ping => {
                         socket.write(b"+PONG\r\n").await.unwrap();
