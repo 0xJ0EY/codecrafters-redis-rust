@@ -1,8 +1,27 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::{Duration, SystemTime}};
+
+#[derive(Debug, Clone)]
+pub struct Entry {
+    pub value: String,
+    pub expiry: Option<SystemTime>,
+}
+
+impl Entry {
+    pub fn new(value: String, expiry: Option<Duration>) -> Self {
+        if expiry.is_some() {
+            let current_time = SystemTime::now();
+            let expiry_time = current_time + expiry.unwrap();
+
+            return Self { value, expiry: Some(expiry_time) }
+        } else {
+            return Self { value, expiry: None };
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Store {
-    data: HashMap<String, String>,
+    data: HashMap<String, Entry>,
 }
 
 impl Store {
@@ -10,11 +29,20 @@ impl Store {
         Self { data: HashMap::new() }
     }
 
-    pub fn set(&mut self, key: String, value: String) {
+    pub fn set(&mut self, key: String, value: Entry) {
         self.data.insert(key, value);
     }
 
-    pub fn get(&self, key: String) -> Option<&String> {
-        return self.data.get(&key);
+    pub fn get(&self, key: String) -> Option<&Entry> {
+        let entry = self.data.get(&key);
+        if entry.is_none() { return None }
+
+        let entry = entry.unwrap();
+
+        if let Some(expiry_date_time) = entry.expiry {
+            if SystemTime::now() > expiry_date_time { return None }
+        }
+
+        return Some(entry);
     }
 }
