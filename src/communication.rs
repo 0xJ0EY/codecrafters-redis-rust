@@ -42,6 +42,13 @@ pub async fn read_command(stream: &mut TcpStream) -> Result<Command> {
                 .collect();
 
             Ok(Command::Replconf(repl_args))
+        },
+        "psync" => {
+            let psync_args: Vec<_> = args.iter()
+                .map(|x| unpack_string(x).unwrap())
+                .collect();
+
+            Ok(Command::Psync(psync_args))
         }
         _ => Err(anyhow!("Unsupported command"))
     }

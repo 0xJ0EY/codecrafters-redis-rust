@@ -27,6 +27,7 @@ enum Command {
     Get(String),
     Info(String),
     Replconf(Vec<String>),
+    Psync(Vec<String>),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -114,6 +115,11 @@ async fn main() -> Result<()> {
                         }
                         Command::Replconf(_) => {
                             write_simple_string(&mut socket, &"OK".to_string()).await;
+                        }
+                        Command::Psync(_) => {
+                            let config = configuration.lock().await;
+
+                            write_simple_string(&mut socket, &format!("FULLRESYNC {} 0", &config.repl_id).to_string()).await;
                         }
                         Command::Quit => {
                             break;

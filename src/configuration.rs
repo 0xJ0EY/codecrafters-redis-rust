@@ -23,7 +23,7 @@ impl fmt::Display for ReplicationRole {
 pub struct ServerConfiguration {
     pub role: ReplicationRole,
     pub connect_clients: usize,
-    pub replid: String,
+    pub repl_id: String,
     pub repl_offset: usize,
     
     pub socket_address: SocketAddr,
@@ -46,7 +46,7 @@ impl ServerConfiguration {
         Self {
             role,
             connect_clients: 0,
-            replid: String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"),
+            repl_id: String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"),
             repl_offset: 0,
             socket_address
         }

@@ -65,5 +65,19 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
         dbg!(capability_command_resp);
     }
 
+    {
+        // Send the PSYNC message
+        let psync_command = Message::Array(vec![
+            Message::BulkString("PSYNC".to_string()),
+            Message::BulkString("?".to_string()), // replication id
+            Message::BulkString("-1".to_string()) // replication offset
+        ]);
+
+        write_message(&mut stream, &psync_command).await;
+
+        let psync_command_resp = block_until_response(&mut stream).await?;
+        dbg!(psync_command_resp);
+    }
+
     Ok(())
 }

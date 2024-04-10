@@ -8,7 +8,7 @@ pub fn build_replication_response(config: &ServerConfiguration) -> String {
         master_repl_offset:{}\n",
         config.role,
         config.connect_clients,
-        config.replid,
+        config.repl_id,
         config.repl_offset
     )
 }
