@@ -41,6 +41,8 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
         Message::BulkString(socket_addr.port().to_string())
     ]);
 
+    dbg!(&listening_port_command);
+
     write_message(&mut stream, &listening_port_command).await;
     
     let listening_port_resp = read_response(&mut stream).await?;
