@@ -10,7 +10,7 @@ pub enum Message {
 }
 
 impl Message {
-    pub fn serialize(self) -> Result<String> {
+    pub fn serialize(&self) -> Result<String> {
         match self {
             Message::SimpleString(s) => Ok(format!("+{}\r\n", s)),
             Message::BulkString(s) => Ok(format!("${}\r\n{}\r\n", s.chars().count(), s)),
