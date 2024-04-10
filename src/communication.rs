@@ -92,6 +92,13 @@ pub async fn write_bulk_string(socket: &mut TcpStream, value: &String) {
     write_message(socket, &Message::BulkString(value.clone())).await
 }
 
+pub async fn write_rdb_file(socket: &mut TcpStream, bytes: &Vec<u8>) {
+    let mut content = format!("${}\r\n", bytes.len()).as_bytes().to_vec();
+    content.extend(bytes);
+
+    socket.write(&content).await.expect("Unable to write to socket");
+}
+
 pub async fn write_null_bulk_string(socket: &mut TcpStream) {
     socket.write(b"$-1\r\n").await.expect("Unable to write to socket");
 }

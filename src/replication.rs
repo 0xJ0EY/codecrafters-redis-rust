@@ -79,5 +79,7 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
         dbg!(psync_command_resp);
     }
 
+    println!("Done replicating");
+
     Ok(())
 }

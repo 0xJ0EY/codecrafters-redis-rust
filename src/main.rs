@@ -7,16 +7,20 @@ mod commands;
 mod info;
 mod store;
 mod replication;
+mod util;
 
 use anyhow::Result;
 use clap::Parser;
-use communication::{read_command, write_bulk_string, write_null_bulk_string};
+use communication::{read_command, write_bulk_string, write_null_bulk_string, write_rdb_file};
 use configuration::ServerConfiguration;
 use info::build_replication_response;
 use store::{Entry, Store};
 use tokio::{net::TcpListener, sync::Mutex};
+use util::decode_hex;
 
 use crate::{communication::write_simple_string, replication::{handle_handshake_with_master, needs_to_replicate}};
+
+const empty_rdb: &str = include_str!("empty_rdb.hex");
 
 #[derive(Debug)]
 enum Command {
@@ -118,8 +122,10 @@ async fn main() -> Result<()> {
                         }
                         Command::Psync(_) => {
                             let config = configuration.lock().await;
+                            let result = decode_hex(empty_rdb).expect("Invalid RDB file");
 
                             write_simple_string(&mut socket, &format!("FULLRESYNC {} 0", &config.repl_id).to_string()).await;
+                            write_rdb_file(&mut socket, &result).await;
                         }
                         Command::Quit => {
                             break;
