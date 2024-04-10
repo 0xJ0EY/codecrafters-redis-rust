@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use bytes::BytesMut;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
 
@@ -63,13 +63,20 @@ fn parse_command(buffer: &BytesMut) -> Result<(String, Vec<Message>)> {
 
 pub async fn read_response(stream: &mut TcpStream) -> Result<Message> {
     let mut buffer = BytesMut::with_capacity(512);
-    let _bytes_to_read = stream.read_buf(&mut buffer).await?;
+    let bytes_to_read = stream.read_buf(&mut buffer).await?;
 
-    // if bytes_to_read == 0 { bail!("No bytes to read") }
+    if bytes_to_read == 0 { bail!("No bytes to read") }
 
     Message::parse(&buffer)
 }
 
+pub async fn block_until_response(stream: &mut TcpStream) -> Result<Message> {
+    loop {
+        if let Ok(command) = read_response(stream).await {
+            return Ok(command)
+        }
+    }
+}
 pub async fn write_simple_string(socket: &mut TcpStream, value: &String) {
     write_message(socket, &Message::SimpleString(value.clone())).await
 }
