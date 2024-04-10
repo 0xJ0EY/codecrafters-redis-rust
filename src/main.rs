@@ -1,13 +1,17 @@
 use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, sync::Arc};
 
 mod messages;
+mod configuration;
 mod commands;
+mod info;
 mod store;
 
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
 use clap::Parser;
 use commands::{get_expiry_from_args, get_key_value_from_args};
+use configuration::ServerConfiguration;
+use info::build_replication_response;
 use messages::unpack_string;
 use store::{Entry, Store};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::Mutex};
@@ -20,7 +24,8 @@ enum Command {
     Ping,
     Quit,
     Set(String, Entry),
-    Get(String)
+    Get(String),
+    Info(String),
 }
 
 async fn read_command(stream: &mut TcpStream) -> Result<Command> {
@@ -46,6 +51,15 @@ async fn read_command(stream: &mut TcpStream) -> Result<Command> {
             let key: String = unpack_string(args.get(0).unwrap())?;
             Ok(Command::Get(key))
         }
+        "info" => {
+            let section = if args.len() > 0 {
+                unpack_string(args.get(0).unwrap())?
+            } else {
+                String::new()
+            };
+
+            Ok(Command::Info(section))
+        },
         _ => Err(anyhow!("Unsupported command"))
     }
 }
@@ -80,6 +94,7 @@ struct CommandLineArgs {
 async fn main() -> Result<()> {
     let args = CommandLineArgs::parse();
     let store = Arc::new(Mutex::new(Store::new()));
+    let configuration = Arc::new(Mutex::new(ServerConfiguration::new(None)));
 
     let address = (&args.address).clone();
     let port = (&args.port).clone();
@@ -91,6 +106,7 @@ async fn main() -> Result<()> {
     loop {
         let (mut socket, _) = listener.accept().await?;
         let store = store.clone();
+        let configuration = configuration.clone();
 
         tokio::spawn(async move {
             loop {
@@ -114,6 +130,23 @@ async fn main() -> Result<()> {
                                 write_null_bulk_string(&mut socket).await
                             }
                         },
+                        Command::Info(section) => {
+                            match section.to_ascii_lowercase().as_str() {
+                                "replication" => {
+                                    let config = configuration.lock().await;
+
+                                    write_bulk_string(&mut socket, &build_replication_response(&config)).await;
+                                },
+                                "" => {
+                                    let config = configuration.lock().await;
+
+                                    write_bulk_string(&mut socket, &build_replication_response(&config)).await;
+                                },
+                                _ => {
+                                    write_simple_string(&mut socket, &"Invalid replication".to_string()).await;
+                                }
+                            }
+                        }
                         Command::Quit => {
                             break;
                         }
