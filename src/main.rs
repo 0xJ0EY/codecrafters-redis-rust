@@ -56,7 +56,11 @@ async fn main() -> Result<()> {
         let config = configuration.lock().await;
 
         if needs_to_replicate(&config) {
-            handle_handshake_with_master(&config).await?;
+            let config = config.clone();
+
+            tokio::spawn(async move {
+                _ = handle_handshake_with_master(&config).await;
+            });
         }
 
         config.socket_address
