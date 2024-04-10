@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, vec};
 
 use anyhow::{bail, Result};
-use tokio::{net::TcpStream};
+use tokio::net::TcpStream;
 
 use crate::{communication::{block_until_response, write_message}, configuration::{ReplicationRole, ServerConfiguration}, messages::Message};
 
