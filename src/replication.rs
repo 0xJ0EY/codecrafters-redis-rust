@@ -42,7 +42,7 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
         let listening_port_command = Message::Array(vec![
             Message::BulkString("REPLCONF".to_string()),
             Message::BulkString("listening-port".to_string()),
-            Message::BulkString(socket_addr.port().to_string())
+            Message::BulkString(configuration.socket_address.port().to_string())
         ]);
 
         write_message(&mut stream, &listening_port_command).await;
