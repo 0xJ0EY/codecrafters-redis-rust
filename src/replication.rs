@@ -1,9 +1,9 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, vec};
 
 use anyhow::{bail, Result};
-use tokio::{io::AsyncWriteExt, net::TcpStream};
+use tokio::{net::TcpStream};
 
-use crate::{configuration::{ReplicationRole, ServerConfiguration}, messages::Message};
+use crate::{communication::write_message, configuration::{ReplicationRole, ServerConfiguration}, messages::Message};
 
 pub fn needs_to_replicate(configuration: &ServerConfiguration) -> bool {
     match configuration.role {
@@ -29,7 +29,25 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
     let mut stream = TcpStream::connect(socket_addr).await?;
     let ping_command = Message::Array(vec![Message::BulkString("ping".to_string())]);
 
-    stream.write_all(ping_command.serialize()?.as_bytes()).await?;
+    write_message(&mut stream, &ping_command).await;
+
+    // Just send the replconf messages
+    let listening_port_command = Message::Array(vec![
+        Message::BulkString("REPLCONF".to_string()),
+        Message::BulkString("listening-port".to_string()),
+        Message::BulkString(socket_addr.port().to_string())
+    ]);
+
+    write_message(&mut stream, &listening_port_command).await;
+
+    // And send the other replconf message
+    let capability_command = Message::Array(vec![
+        Message::BulkString("REPLCONF".to_string()),
+        Message::BulkString("capa".to_string()),
+        Message::BulkString("psync2".to_string())
+    ]);
+
+    write_message(&mut stream, &capability_command).await;
 
     return Ok(());
 }

@@ -26,6 +26,7 @@ enum Command {
     Set(String, Entry),
     Get(String),
     Info(String),
+    Replconf(Vec<String>),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -49,21 +50,17 @@ async fn main() -> Result<()> {
     let args = CommandLineArgs::parse();
     let store = Arc::new(Mutex::new(Store::new()));
 
-    let replication_addr = parse_replication_addr(&args);
-    let configuration = Arc::new(Mutex::new(ServerConfiguration::new(replication_addr)));
+    let configuration = Arc::new(Mutex::new(ServerConfiguration::new(&args)));
 
-    {
+    let socket_address = {
         let config = configuration.lock().await;
 
         if needs_to_replicate(&config) {
             handle_handshake_with_master(&config).await?;
         }
-    }
 
-    let address = (&args.address).clone();
-    let port = (&args.port).clone();
-
-    let socket_address = SocketAddr::new(address, port);
+        config.socket_address
+    };
 
     let listener = TcpListener::bind(socket_address).await?;
 
@@ -111,6 +108,9 @@ async fn main() -> Result<()> {
                                 }
                             }
                         }
+                        Command::Replconf(_) => {
+                            write_simple_string(&mut socket, &"OK".to_string()).await;
+                        }
                         Command::Quit => {
                             break;
                         }
@@ -124,25 +124,3 @@ async fn main() -> Result<()> {
     }
 }
 
-fn parse_replication_addr(args: &CommandLineArgs) -> Option<SocketAddr> {
-    if args.replicaof.is_some() {
-        let arg = args.replicaof.clone().unwrap();
-        let raw_addr = arg.get(0).unwrap();
-        let raw_port = arg.get(1).unwrap();
-
-        let port = raw_port.parse::<u16>().expect("Port is not a valid number");
-        let server = format!("{}:{}", raw_addr, port);
-
-        if let Ok(socket) = server.to_socket_addrs() {
-            let server: Vec<_> = socket.collect();
-
-            let addr = server.last().expect("No valid addresses found");
-
-            return Some(addr.clone());
-        } else {
-            return None;
-        }
-    };
-
-    return None;
-}

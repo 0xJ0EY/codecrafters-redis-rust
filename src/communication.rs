@@ -36,6 +36,13 @@ pub async fn read_command(stream: &mut TcpStream) -> Result<Command> {
 
             Ok(Command::Info(section))
         },
+        "replconf" => {
+            let repl_args: Vec<_> = args.iter()
+                .map(|x| unpack_string(x).unwrap())
+                .collect();
+
+            Ok(Command::Replconf(repl_args))
+        }
         _ => Err(anyhow!("Unsupported command"))
     }
 }
@@ -57,6 +64,8 @@ fn parse_command(buffer: &BytesMut) -> Result<(String, Vec<Message>)> {
 pub async fn read_response(stream: &mut TcpStream) -> Result<()> {
     let mut buffer = BytesMut::with_capacity(512);
     let bytes_to_read = stream.read_buf(&mut buffer).await?;
+
+    
 
     Ok(())
 }
