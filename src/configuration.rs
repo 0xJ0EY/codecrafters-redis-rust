@@ -20,7 +20,9 @@ impl fmt::Display for ReplicationRole {
 #[derive(Debug, Clone)]
 pub struct ServerConfiguration {
     pub role: ReplicationRole,
-    pub connect_clients: usize
+    pub connect_clients: usize,
+    pub replid: String,
+    pub repl_offset: usize
 }
 
 impl ServerConfiguration {
@@ -31,6 +33,11 @@ impl ServerConfiguration {
             ReplicationRole::Master
         };
         
-        Self { role, connect_clients: 0 }
+        Self {
+            role,
+            connect_clients: 0,
+            replid: String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"),
+            repl_offset: 0,
+        }
     }
 }
