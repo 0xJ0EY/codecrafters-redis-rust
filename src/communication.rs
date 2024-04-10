@@ -65,7 +65,7 @@ pub async fn read_response(stream: &mut TcpStream) -> Result<Message> {
     let mut buffer = BytesMut::with_capacity(512);
     let bytes_to_read = stream.read_buf(&mut buffer).await?;
 
-    if bytes_to_read == 0 { bail!("No bytes to read") }
+    // if bytes_to_read == 0 { bail!("No bytes to read") }
 
     Message::parse(&buffer)
 }
