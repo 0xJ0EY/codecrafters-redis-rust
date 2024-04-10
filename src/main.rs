@@ -1,4 +1,4 @@
-use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, sync::Arc};
+use std::{f32::consts::E, net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, sync::Arc};
 
 mod messages;
 mod configuration;
@@ -8,7 +8,7 @@ mod store;
 
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use clap::Parser;
+use clap::{value_parser, Args, Command as CommandBuilder, Parser, Subcommand};
 use commands::{get_expiry_from_args, get_key_value_from_args};
 use configuration::ServerConfiguration;
 use info::build_replication_response;
@@ -76,7 +76,7 @@ fn parse_command(buffer: &BytesMut) -> Result<(String, Vec<Message>)> {
         },
         _ => Err(anyhow!("Unexpected command format"))
     }
-} 
+}
 
 #[derive(Parser, Debug, Clone)]
 #[clap(about, long_about = None)]
@@ -88,13 +88,41 @@ struct CommandLineArgs {
     #[arg(default_value = "6379")]
     #[clap(short, long)]
     port: u16,
+
+    #[arg(value_delimiter = ' ', num_args = 2)]
+    #[clap(long)]
+    replicaof: Option<Vec<String>>
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = CommandLineArgs::parse();
     let store = Arc::new(Mutex::new(Store::new()));
-    let configuration = Arc::new(Mutex::new(ServerConfiguration::new(None)));
+
+    let replication_addr = if args.replicaof.is_some() {
+        let arg = args.replicaof.unwrap();
+        let raw_addr = arg.get(0).unwrap();
+        let raw_port = arg.get(1).unwrap();
+
+        let port = raw_port.parse::<u16>().expect("Port is not a valid number");
+        let server = format!("{}:{}", raw_addr, port);
+
+        if let Ok(socket) = server.to_socket_addrs() {
+            let server: Vec<_> = socket.collect();
+
+            let addr = server.first().expect("No valid addresses found");
+
+            Some(addr.clone())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    dbg!(&replication_addr);
+
+    let configuration = Arc::new(Mutex::new(ServerConfiguration::new(replication_addr)));
 
     let address = (&args.address).clone();
     let port = (&args.port).clone();

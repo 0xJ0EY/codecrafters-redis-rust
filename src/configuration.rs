@@ -26,7 +26,7 @@ pub struct ServerConfiguration {
 impl ServerConfiguration {
     pub fn new(replica_addr: Option<SocketAddr>) -> Self {
         let role = if let Some(addr) = replica_addr {
-            ReplicationRole::Slave(addr)  
+            ReplicationRole::Slave(addr.clone())  
         } else {
             ReplicationRole::Master
         };
