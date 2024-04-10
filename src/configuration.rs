@@ -1,6 +1,6 @@
 use std::{fmt, net::SocketAddr};
 
-#[derive(Debug, Clone, )]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ReplicationRole {
     Master,
     Slave(SocketAddr)

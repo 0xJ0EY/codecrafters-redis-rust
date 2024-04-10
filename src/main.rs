@@ -1,22 +1,23 @@
-use std::{f32::consts::E, net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, sync::Arc};
+use std::{net::{IpAddr, SocketAddr, ToSocketAddrs}, sync::Arc};
 
 mod messages;
 mod configuration;
 mod commands;
 mod info;
 mod store;
+mod replication;
 
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use clap::{value_parser, Args, Command as CommandBuilder, Parser, Subcommand};
+use clap::Parser;
 use commands::{get_expiry_from_args, get_key_value_from_args};
-use configuration::ServerConfiguration;
+use configuration::{ReplicationRole, ServerConfiguration};
 use info::build_replication_response;
 use messages::unpack_string;
 use store::{Entry, Store};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::Mutex};
 
-use crate::messages::Message;
+use crate::{messages::Message, replication::{handle_handshake_with_master, needs_to_replicate}};
 
 #[derive(Debug)]
 enum Command {
@@ -110,7 +111,7 @@ async fn main() -> Result<()> {
         if let Ok(socket) = server.to_socket_addrs() {
             let server: Vec<_> = socket.collect();
 
-            let addr = server.first().expect("No valid addresses found");
+            let addr = server.last().expect("No valid addresses found");
 
             Some(addr.clone())
         } else {
@@ -120,9 +121,15 @@ async fn main() -> Result<()> {
         None
     };
 
-    dbg!(&replication_addr);
-
     let configuration = Arc::new(Mutex::new(ServerConfiguration::new(replication_addr)));
+
+    {
+        let config = configuration.lock().await;
+
+        if needs_to_replicate(&config) {
+            handle_handshake_with_master(&config).await?;
+        }
+    }
 
     let address = (&args.address).clone();
     let port = (&args.port).clone();
