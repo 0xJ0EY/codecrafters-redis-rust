@@ -1,6 +1,6 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, stream};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
 
 use crate::{commands::{get_expiry_from_args, get_key_value_from_args}, messages::{unpack_string, Message}, store::Entry, Command};
 
@@ -24,12 +24,12 @@ pub async fn read_command(stream: &mut TcpStream) -> Result<Command> {
             Ok(Command::Set(key, entry))
         },
         "get" => {
-            let key: String = unpack_string(args.get(0).unwrap())?;
+            let key: String = unpack_string(args.first().unwrap())?;
             Ok(Command::Get(key))
         }
         "info" => {
-            let section = if args.len() > 0 {
-                unpack_string(args.get(0).unwrap())?
+            let section = if !args.is_empty() {
+                unpack_string(args.first().unwrap())?
             } else {
                 String::new()
             };
@@ -63,7 +63,7 @@ fn parse_command(buffer: &BytesMut) -> Result<(String, Vec<Message>)> {
 
 pub async fn read_response(stream: &mut TcpStream) -> Result<Message> {
     let mut buffer = BytesMut::with_capacity(512);
-    let bytes_to_read = stream.read_buf(&mut buffer).await?;
+    let _bytes_to_read = stream.read_buf(&mut buffer).await?;
 
     // if bytes_to_read == 0 { bail!("No bytes to read") }
 

@@ -12,9 +12,9 @@ impl Entry {
             let current_time = SystemTime::now();
             let expiry_time = current_time + expiry.unwrap();
 
-            return Self { value, expiry: Some(expiry_time) }
+            Self { value, expiry: Some(expiry_time) }
         } else {
-            return Self { value, expiry: None };
+            Self { value, expiry: None }
         }
     }
 }
@@ -35,7 +35,7 @@ impl Store {
 
     pub fn get(&self, key: String) -> Option<&Entry> {
         let entry = self.data.get(&key);
-        if entry.is_none() { return None }
+        entry?;
 
         let entry = entry.unwrap();
 
@@ -43,6 +43,6 @@ impl Store {
             if SystemTime::now() > expiry_date_time { return None }
         }
 
-        return Some(entry);
+        Some(entry)
     }
 }

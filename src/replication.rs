@@ -60,5 +60,5 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
     let capability_command_resp = read_response(&mut stream).await?;
     dbg!(capability_command_resp);
 
-    return Ok(());
+    Ok(())
 }

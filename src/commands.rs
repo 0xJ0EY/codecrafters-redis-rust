@@ -6,7 +6,7 @@ use anyhow::{anyhow, Ok, Result};
 pub fn get_key_value_from_args(args: &Vec<Message>) -> Result<(String, String)> {
     if args.len() < 2 { return Err(anyhow!("Incomplete command for set")) }
 
-    let key = unpack_string(args.get(0).unwrap())?;
+    let key = unpack_string(args.first().unwrap())?;
     let value = unpack_string(args.get(1).unwrap())?;
 
     Ok((key, value))

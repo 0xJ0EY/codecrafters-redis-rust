@@ -32,13 +32,13 @@ pub struct ServerConfiguration {
 impl ServerConfiguration {
     pub fn new(args: &CommandLineArgs) -> Self {
         let role = if let Some(addr) = parse_replication_addr(args) {
-            ReplicationRole::Slave(addr.clone())  
+            ReplicationRole::Slave(addr)  
         } else {
             ReplicationRole::Master
         };
 
-        let address = (&args.address).clone();
-        let port = (&args.port).clone();
+        let address = args.address;
+        let port = args.port;
 
         let socket_address: SocketAddr = SocketAddr::new(address, port);
 
@@ -56,7 +56,7 @@ impl ServerConfiguration {
 fn parse_replication_addr(args: &CommandLineArgs) -> Option<SocketAddr> {
     if args.replicaof.is_some() {
         let arg = args.replicaof.clone().unwrap();
-        let raw_addr = arg.get(0).unwrap();
+        let raw_addr = arg.first().unwrap();
         let raw_port = arg.get(1).unwrap();
 
         let port = raw_port.parse::<u16>().expect("Port is not a valid number");
@@ -67,11 +67,11 @@ fn parse_replication_addr(args: &CommandLineArgs) -> Option<SocketAddr> {
 
             let addr = server.last().expect("No valid addresses found");
 
-            return Some(addr.clone());
+            return Some(*addr);
         } else {
             return None;
         }
     };
 
-    return None;
+    None
 }
