@@ -3,7 +3,7 @@ use std::{net::SocketAddr, vec};
 use anyhow::{bail, Result};
 use tokio::{net::TcpStream};
 
-use crate::{communication::write_message, configuration::{ReplicationRole, ServerConfiguration}, messages::Message};
+use crate::{communication::{read_response, write_message}, configuration::{ReplicationRole, ServerConfiguration}, messages::Message};
 
 pub fn needs_to_replicate(configuration: &ServerConfiguration) -> bool {
     match configuration.role {
@@ -31,6 +31,9 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
 
     write_message(&mut stream, &ping_command).await;
 
+    let ping_resp = read_response(&mut stream).await?;
+    dbg!(ping_resp);
+
     // Just send the replconf messages
     let listening_port_command = Message::Array(vec![
         Message::BulkString("REPLCONF".to_string()),
@@ -39,6 +42,9 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
     ]);
 
     write_message(&mut stream, &listening_port_command).await;
+    
+    let listening_port_resp = read_response(&mut stream).await?;
+    dbg!(listening_port_resp);
 
     // And send the other replconf message
     let capability_command = Message::Array(vec![
@@ -48,6 +54,9 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
     ]);
 
     write_message(&mut stream, &capability_command).await;
+
+    let capability_command_resp = read_response(&mut stream).await?;
+    dbg!(capability_command_resp);
 
     return Ok(());
 }
