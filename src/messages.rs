@@ -13,7 +13,7 @@ impl Message {
     pub fn serialize(self) -> Result<String> {
         match self {
             Message::SimpleString(s) => Ok(format!("+{}\r\n", s)),
-            Message::BulkString(s) => Ok(format!("${}\r\n{}\r\n", s.chars().count(), s)),
+            Message::BulkString(s) => Ok(format!("${}\r\n{}", s.chars().count(), s)),
             Message::Array(items) => {
                 let mut parts = Vec::with_capacity(items.len());
 
@@ -21,7 +21,7 @@ impl Message {
                     parts.push(item.serialize()?);
                 }
 
-                Ok(format!("*{}\r\n{}\r\n", parts.len(), parts.join("")))
+                Ok(format!("*{}\r\n{}", parts.len(), parts.join("")))
             },
             _ => { Err(anyhow!("impl the rest of the values"))}
         }
