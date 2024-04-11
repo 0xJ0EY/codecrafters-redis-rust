@@ -76,6 +76,26 @@ struct CommandLineArgs {
     replicaof: Option<Vec<String>>
 }
 
+async fn handle_master(
+    mut socket: TcpStream,
+    store: Arc<Mutex<Store>>,
+    configuration: Arc<Mutex<ServerConfiguration>>
+) {
+    loop {
+        if let Ok(command) = read_command(&mut socket).await {
+            match command {
+                Command::Set(key, value) => {
+                    store.lock().await.set(key, value);
+                },
+                Command::Quit => {
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }    
+}
+
 async fn handle_client(
     mut socket: TcpStream,
     store: Arc<Mutex<Store>>,
@@ -187,7 +207,7 @@ async fn main() -> Result<()> {
                     .await
                     .expect("Failed the handshake with the master");
 
-                handle_client(socket, store, configuration).await;
+                handle_master(socket, store, configuration).await;
             });
         }
 
