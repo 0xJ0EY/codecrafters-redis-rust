@@ -1,4 +1,4 @@
-use std::{fmt, net::{SocketAddr, ToSocketAddrs}, sync::Arc};
+use std::{fmt, net::{SocketAddr, ToSocketAddrs}};
 
 use tokio::sync::Mutex;
 

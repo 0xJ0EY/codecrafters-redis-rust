@@ -1,9 +1,9 @@
 use std::{net::SocketAddr, sync::Arc, vec};
 
 use anyhow::{bail, Result};
-use tokio::{io::AsyncWriteExt, net::TcpStream, sync::{mpsc::{self, Receiver, Sender}, Mutex}, task::JoinHandle};
+use tokio::{net::TcpStream, sync::{mpsc::{self, Receiver, Sender}, Mutex}, task::JoinHandle};
 
-use crate::{communication::{block_until_response, write_message}, configuration::{self, ReplicationRole, ServerConfiguration}, messages::Message, Command};
+use crate::{communication::{block_until_response, write_message}, configuration::{ReplicationRole, ServerConfiguration}, messages::Message};
 
 pub async fn needs_to_replicate(configuration: &Arc<Mutex<ServerConfiguration>>) -> bool {
     let configuration = configuration.lock().await;
@@ -94,7 +94,7 @@ pub struct ReplicaHandle {
 
 pub fn replication_channel(mut socket: TcpStream) -> (ReplicaHandle, JoinHandle<()>) {
     let (tx_res, mut rx) = mpsc::channel::<ReplicaCommand>(32);
-    let (tx, rx_res) = mpsc::channel::<ReplicaCommand>(32);
+    let (_tx, rx_res) = mpsc::channel::<ReplicaCommand>(32);
 
     let handle = tokio::spawn(async move {
         loop {
