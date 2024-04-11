@@ -1,4 +1,4 @@
-use std::{net::IpAddr, sync::Arc};
+use std::{net::IpAddr, sync::Arc, vec};
 
 mod communication;
 mod messages;
@@ -11,7 +11,7 @@ mod util;
 
 use anyhow::Result;
 use clap::Parser;
-use communication::{read_command, write_bulk_string, write_null_bulk_string, write_rdb_file};
+use communication::{read_command, write_bulk_string, write_message, write_null_bulk_string, write_rdb_file};
 use configuration::ServerConfiguration;
 use info::build_replication_response;
 use messages::Message;
@@ -87,6 +87,21 @@ async fn handle_master(
                 Command::Set(key, value) => {
                     store.lock().await.set(key, value);
                 },
+                Command::Replconf(args) => {
+                    let command = args.first().expect("Replconf args is required").to_lowercase();
+
+                    if command == "getack" {
+                        let message = Message::Array(vec![
+                            Message::BulkString("REPLCONF".to_string()),
+                            Message::BulkString("ACK".to_string()),
+                            Message::BulkString("0".to_string()),
+                        ]);
+
+                        write_message(&mut socket, &message).await;
+                    }
+
+                }
+                Command::Ping => {},
                 Command::Quit => {
                     break;
                 }

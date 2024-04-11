@@ -10,14 +10,14 @@ pub async fn needs_to_replicate(configuration: &Arc<Mutex<ServerConfiguration>>)
 
     match configuration.role {
         ReplicationRole::Master => false,
-        ReplicationRole::Slave(_) => true
+        ReplicationRole::Replication(_) => true
     }
 }
 
 fn get_master_socket_addr(configuration: &ServerConfiguration) -> Option<SocketAddr> {
     match configuration.role {
         ReplicationRole::Master => None,
-        ReplicationRole::Slave(socket) => Some(socket)
+        ReplicationRole::Replication(socket) => Some(socket)
     }
 }
 

@@ -7,14 +7,14 @@ use crate::{replication::ReplicaHandle, CommandLineArgs};
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReplicationRole {
     Master,
-    Slave(SocketAddr)
+    Replication(SocketAddr)
 }
 
 impl fmt::Display for ReplicationRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let str = match self {
             Self::Master => { "master" },
-            Self::Slave(_) => { "slave" }
+            Self::Replication(_) => { "slave" } // Needed for tests 
         };
 
         write!(f, "{}", str)
@@ -36,7 +36,7 @@ pub struct ServerConfiguration {
 impl ServerConfiguration {
     pub fn new(args: &CommandLineArgs) -> Self {
         let role = if let Some(addr) = parse_replication_addr(args) {
-            ReplicationRole::Slave(addr)  
+            ReplicationRole::Replication(addr)
         } else {
             ReplicationRole::Master
         };
