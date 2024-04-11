@@ -1,11 +1,13 @@
-use std::{net::SocketAddr, vec};
+use std::{net::SocketAddr, sync::Arc, vec};
 
 use anyhow::{bail, Result};
-use tokio::net::TcpStream;
+use tokio::{io::AsyncWriteExt, net::TcpStream, sync::{mpsc::{self, Receiver, Sender}, Mutex}, task::JoinHandle};
 
-use crate::{communication::{block_until_response, write_message}, configuration::{ReplicationRole, ServerConfiguration}, messages::Message};
+use crate::{communication::{block_until_response, write_message}, configuration::{self, ReplicationRole, ServerConfiguration}, messages::Message, Command};
 
-pub fn needs_to_replicate(configuration: &ServerConfiguration) -> bool {
+pub async fn needs_to_replicate(configuration: &Arc<Mutex<ServerConfiguration>>) -> bool {
+    let configuration = configuration.lock().await;
+
     match configuration.role {
         ReplicationRole::Master => false,
         ReplicationRole::Slave(_) => true
@@ -19,16 +21,17 @@ fn get_master_socket_addr(configuration: &ServerConfiguration) -> Option<SocketA
     }
 }
 
-pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -> Result<()> {
-    // Open socket, send a ping
-    let socket_addr = get_master_socket_addr(configuration);
+pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfiguration>>) -> Result<TcpStream> {   
+    let configuration = configuration.lock().await;
+
+    let socket_addr = get_master_socket_addr(&configuration);
     if socket_addr.is_none() { bail!("invalid socket address") }
 
     let socket_addr = socket_addr.unwrap();
 
     let mut stream = TcpStream::connect(socket_addr).await?;
 
-    {
+    { // 1. Ping command
         let ping_command = Message::Array(vec![Message::BulkString("ping".to_string())]);
 
         write_message(&mut stream, &ping_command).await;
@@ -37,8 +40,7 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
         dbg!(ping_resp);
     }
 
-    {
-        // Just send the replconf messages
+    { // 2.1 REPLCONF listening port
         let listening_port_command = Message::Array(vec![
             Message::BulkString("REPLCONF".to_string()),
             Message::BulkString("listening-port".to_string()),
@@ -51,8 +53,7 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
         dbg!(listening_port_resp);
     }
 
-    {
-        // And send the other replconf message
+    { // 2.2 REPLCONF capabilities
         let capability_command = Message::Array(vec![
             Message::BulkString("REPLCONF".to_string()),
             Message::BulkString("capa".to_string()),
@@ -65,8 +66,7 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
         dbg!(capability_command_resp);
     }
 
-    {
-        // Send the PSYNC message
+    { // 3. PSYNC
         let psync_command = Message::Array(vec![
             Message::BulkString("PSYNC".to_string()),
             Message::BulkString("?".to_string()), // replication id
@@ -79,7 +79,41 @@ pub async fn handle_handshake_with_master(configuration: &ServerConfiguration) -
         dbg!(psync_command_resp);
     }
 
-    println!("Done replicating");
+    Ok(stream)
+}
 
-    Ok(())
+#[derive(Debug)]
+pub struct ReplicaCommand {
+    pub message: Message
+}
+#[derive(Debug)]
+pub struct ReplicaHandle {
+    pub tx: Sender<ReplicaCommand>,
+    pub rx: Receiver<ReplicaCommand>,
+}
+
+pub fn replication_channel(mut socket: TcpStream) -> (ReplicaHandle, JoinHandle<()>) {
+    let (tx_res, mut rx) = mpsc::channel::<ReplicaCommand>(32);
+    let (tx, rx_res) = mpsc::channel::<ReplicaCommand>(32);
+
+    let handle = tokio::spawn(async move {
+        loop {
+            dbg!("wait for response");
+
+            while let Some(replica_command) = rx.recv().await {
+
+                dbg!(&socket);
+                write_message(&mut socket, &replica_command.message).await;
+            }
+
+        }
+    });
+
+    (
+        ReplicaHandle {
+            tx: tx_res,
+            rx: rx_res
+        },
+        handle
+    )
 }

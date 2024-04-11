@@ -1,4 +1,4 @@
-use std::{net::IpAddr, sync::Arc};
+use std::{clone, net::IpAddr, sync::Arc};
 
 mod communication;
 mod messages;
@@ -14,14 +14,14 @@ use clap::Parser;
 use communication::{read_command, write_bulk_string, write_null_bulk_string, write_rdb_file};
 use configuration::ServerConfiguration;
 use info::build_replication_response;
-use store::{Entry, Store};
+use messages::Message;
+use replication::{replication_channel, ReplicaCommand};
+use store::{full_resync_rdb, Entry, Store};
 use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
-use util::decode_hex;
 
 use crate::{communication::write_simple_string, replication::{handle_handshake_with_master, needs_to_replicate}};
-const empty_rdb: &str = include_str!("empty_rdb.hex");
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Command {
     Echo(String),
     Ping,
@@ -31,6 +31,33 @@ enum Command {
     Info(String),
     Replconf(Vec<String>),
     Psync(Vec<String>),
+}
+
+impl Command {
+    pub fn to_replica_command(&self) -> Option<ReplicaCommand> {
+        match self {
+            Self::Set(key, entry) => {
+                let message = if entry.expiry_at.is_some() {
+                    Message::Array(vec![
+                        Message::BulkString("set".to_string()),
+                        Message::BulkString(key.clone()),
+                        Message::BulkString(entry.value.clone()),
+                        Message::BulkString("px".to_string()),
+                        Message::BulkString(entry.expiry_time.unwrap().as_millis().to_string())
+                    ])
+                } else {
+                    Message::Array(vec![
+                        Message::BulkString("set".to_string()),
+                        Message::BulkString(key.clone()),
+                        Message::BulkString(entry.value.clone()),
+                    ])
+                };
+                
+                Some(ReplicaCommand { message })
+            }
+            _ => { None }
+        }
+    }
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -49,12 +76,36 @@ struct CommandLineArgs {
     replicaof: Option<Vec<String>>
 }
 
+async fn handle_client(
+    mut socket: TcpStream,
+    store: Arc<Mutex<Store>>,
+    configuration: Arc<Mutex<ServerConfiguration>>
+) {
+    let mut full_resync = false;
 
-async fn handle_client(mut socket: TcpStream, store: Arc<Mutex<Store>>, configuration: Arc<Mutex<ServerConfiguration>>) {
     loop {
+        if full_resync {
+            {
+                let rdb = full_resync_rdb();
+                write_rdb_file(&mut socket, &rdb).await;
+            }
+
+            let (replication_handle, handle) = replication_channel(socket);
+
+            { // Block scope is needed for RAII, due to handle.await leaving the scope *alive*
+                let config = configuration.lock().await;
+                config.replication_handles.lock().await.push(replication_handle);
+            }
+
+            _ = handle.await;
+            return;
+        }
+
         let command = read_command(&mut socket).await;
 
         if let Ok(command) = command {
+            let cloned_command = command.clone();
+
             match command {
                 Command::Ping => {
                     write_simple_string(&mut socket, &"PONG".to_string()).await;
@@ -64,6 +115,12 @@ async fn handle_client(mut socket: TcpStream, store: Arc<Mutex<Store>>, configur
                 },
                 Command::Set(key, value) => {
                     store.lock().await.set(key, value);
+
+                    for replication in configuration.lock().await.replication_handles.lock().await.iter_mut() {
+                        if let Some(replica_command) = cloned_command.to_replica_command() {
+                            _ = replication.tx.send(replica_command).await;
+                        }
+                    }
 
                     write_simple_string(&mut socket, &"OK".to_string()).await;
                 },
@@ -96,10 +153,9 @@ async fn handle_client(mut socket: TcpStream, store: Arc<Mutex<Store>>, configur
                 }
                 Command::Psync(_) => {
                     let config = configuration.lock().await;
-                    let result = decode_hex(empty_rdb).expect("Invalid RDB file");
-
                     write_simple_string(&mut socket, &format!("FULLRESYNC {} 0", &config.repl_id).to_string()).await;
-                    write_rdb_file(&mut socket, &result).await;
+
+                    full_resync = true;
                 }
                 Command::Quit => {
                     break;
@@ -120,21 +176,26 @@ async fn main() -> Result<()> {
     let configuration = Arc::new(Mutex::new(ServerConfiguration::new(&args)));
 
     let socket_address = {
-        let config = configuration.lock().await;
+        if needs_to_replicate(&configuration).await {
+            let config = configuration.clone();
 
-        if needs_to_replicate(&config) {
-            let config = config.clone();
+            let store = store.clone();
+            let configuration = configuration.clone();
 
             tokio::spawn(async move {
-                _ = handle_handshake_with_master(&config).await;
+                let socket = handle_handshake_with_master(config)
+                    .await
+                    .expect("Failed the handshake with the master");
+
+                handle_client(socket, store, configuration).await;
             });
         }
 
-        config.socket_address
+        configuration.lock().await.socket_address
     };
 
     let listener = TcpListener::bind(socket_address).await?;
-
+    
     loop {
         let (socket, _) = listener.accept().await?;
         let store = store.clone();

@@ -1,9 +1,12 @@
 use std::{collections::HashMap, time::{Duration, SystemTime}};
 
+use crate::util::decode_hex;
+
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub value: String,
-    pub expiry: Option<SystemTime>,
+    pub expiry_time: Option<Duration>,
+    pub expiry_at: Option<SystemTime>,
 }
 
 impl Entry {
@@ -12,9 +15,13 @@ impl Entry {
             let current_time = SystemTime::now();
             let expiry_time = current_time + expiry.unwrap();
 
-            Self { value, expiry: Some(expiry_time) }
+            Self {
+                value,
+                expiry_time: expiry,
+                expiry_at: Some(expiry_time),
+             }
         } else {
-            Self { value, expiry: None }
+            Self { value, expiry_time: None, expiry_at: None }
         }
     }
 }
@@ -39,10 +46,16 @@ impl Store {
 
         let entry = entry.unwrap();
 
-        if let Some(expiry_date_time) = entry.expiry {
+        if let Some(expiry_date_time) = entry.expiry_at {
             if SystemTime::now() > expiry_date_time { return None }
         }
 
         Some(entry)
     }
+}
+
+pub fn full_resync_rdb() -> Vec<u8> {
+    const EMPTY_RDB: &str = include_str!("empty_rdb.hex");
+
+    decode_hex(EMPTY_RDB).unwrap_or_default()
 }

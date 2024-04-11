@@ -1,6 +1,8 @@
-use std::{fmt, net::{SocketAddr, ToSocketAddrs}};
+use std::{fmt, net::{SocketAddr, ToSocketAddrs}, sync::Arc};
 
-use crate::CommandLineArgs;
+use tokio::sync::Mutex;
+
+use crate::{replication::ReplicaHandle, CommandLineArgs};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReplicationRole {
@@ -19,7 +21,7 @@ impl fmt::Display for ReplicationRole {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ServerConfiguration {
     pub role: ReplicationRole,
     pub connect_clients: usize,
@@ -27,6 +29,8 @@ pub struct ServerConfiguration {
     pub repl_offset: usize,
     
     pub socket_address: SocketAddr,
+
+    pub replication_handles: Mutex<Vec<ReplicaHandle>>,
 }
 
 impl ServerConfiguration {
@@ -42,13 +46,13 @@ impl ServerConfiguration {
 
         let socket_address: SocketAddr = SocketAddr::new(address, port);
 
-        
         Self {
             role,
             connect_clients: 0,
             repl_id: String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"),
             repl_offset: 0,
-            socket_address
+            socket_address,
+            replication_handles: Mutex::new(Vec::new())
         }
     }
 }
