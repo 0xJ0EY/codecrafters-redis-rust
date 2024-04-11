@@ -15,11 +15,10 @@ use communication::{read_command, write_bulk_string, write_null_bulk_string, wri
 use configuration::ServerConfiguration;
 use info::build_replication_response;
 use store::{Entry, Store};
-use tokio::{net::TcpListener, sync::Mutex};
+use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
 use util::decode_hex;
 
 use crate::{communication::write_simple_string, replication::{handle_handshake_with_master, needs_to_replicate}};
-
 const empty_rdb: &str = include_str!("empty_rdb.hex");
 
 #[derive(Debug)]
@@ -50,6 +49,69 @@ struct CommandLineArgs {
     replicaof: Option<Vec<String>>
 }
 
+
+async fn handle_client(mut socket: TcpStream, store: Arc<Mutex<Store>>, configuration: Arc<Mutex<ServerConfiguration>>) {
+    loop {
+        let command = read_command(&mut socket).await;
+
+        if let Ok(command) = command {
+            match command {
+                Command::Ping => {
+                    write_simple_string(&mut socket, &"PONG".to_string()).await;
+                },
+                Command::Echo(value) => {
+                    write_bulk_string(&mut socket, &value).await;
+                },
+                Command::Set(key, value) => {
+                    store.lock().await.set(key, value);
+
+                    write_simple_string(&mut socket, &"OK".to_string()).await;
+                },
+                Command::Get(key) => {
+                    if let Some(entry) = store.lock().await.get(key) {
+                        write_bulk_string(&mut socket, &entry.value).await;
+                    } else {
+                        write_null_bulk_string(&mut socket).await;
+                    }
+                },
+                Command::Info(section) => {
+                    match section.to_ascii_lowercase().as_str() {
+                        "replication" => {
+                            let config = configuration.lock().await;
+
+                            write_bulk_string(&mut socket, &build_replication_response(&config)).await;
+                        },
+                        "" => {
+                            let config = configuration.lock().await;
+
+                            write_bulk_string(&mut socket, &build_replication_response(&config)).await;
+                        },
+                        _ => {
+                            write_simple_string(&mut socket, &"Invalid replication".to_string()).await;
+                        }
+                    }
+                }
+                Command::Replconf(_) => {
+                    write_simple_string(&mut socket, &"OK".to_string()).await;
+                }
+                Command::Psync(_) => {
+                    let config = configuration.lock().await;
+                    let result = decode_hex(empty_rdb).expect("Invalid RDB file");
+
+                    write_simple_string(&mut socket, &format!("FULLRESYNC {} 0", &config.repl_id).to_string()).await;
+                    write_rdb_file(&mut socket, &result).await;
+                }
+                Command::Quit => {
+                    break;
+                }
+            }
+        } else {
+            dbg!(&command);
+            write_simple_string(&mut socket, &"Invalid command".to_string()).await;
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = CommandLineArgs::parse();
@@ -74,68 +136,12 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(socket_address).await?;
 
     loop {
-        let (mut socket, _) = listener.accept().await?;
+        let (socket, _) = listener.accept().await?;
         let store = store.clone();
         let configuration = configuration.clone();
 
         tokio::spawn(async move {
-            loop {
-                if let Ok(command) = read_command(&mut socket).await {
-                    match command {
-                        Command::Ping => {
-                            write_simple_string(&mut socket, &"PONG".to_string()).await;
-                        },
-                        Command::Echo(value) => {
-                            write_bulk_string(&mut socket, &value).await;
-                        },
-                        Command::Set(key, value) => {
-                            store.lock().await.set(key, value);
-
-                            write_simple_string(&mut socket, &"OK".to_string()).await;
-                        },
-                        Command::Get(key) => {
-                            if let Some(entry) = store.lock().await.get(key) {
-                                write_bulk_string(&mut socket, &entry.value).await;
-                            } else {
-                                write_null_bulk_string(&mut socket).await;
-                            }
-                        },
-                        Command::Info(section) => {
-                            match section.to_ascii_lowercase().as_str() {
-                                "replication" => {
-                                    let config = configuration.lock().await;
-
-                                    write_bulk_string(&mut socket, &build_replication_response(&config)).await;
-                                },
-                                "" => {
-                                    let config = configuration.lock().await;
-
-                                    write_bulk_string(&mut socket, &build_replication_response(&config)).await;
-                                },
-                                _ => {
-                                    write_simple_string(&mut socket, &"Invalid replication".to_string()).await;
-                                }
-                            }
-                        }
-                        Command::Replconf(_) => {
-                            write_simple_string(&mut socket, &"OK".to_string()).await;
-                        }
-                        Command::Psync(_) => {
-                            let config = configuration.lock().await;
-                            let result = decode_hex(empty_rdb).expect("Invalid RDB file");
-
-                            write_simple_string(&mut socket, &format!("FULLRESYNC {} 0", &config.repl_id).to_string()).await;
-                            write_rdb_file(&mut socket, &result).await;
-                        }
-                        Command::Quit => {
-                            break;
-                        }
-                    }
-                } else {
-                    dbg!("invalid command");
-                    write_simple_string(&mut socket, &"Invalid command".to_string()).await;
-                }
-            }
+            handle_client(socket, store, configuration).await;
         });
     }
 }

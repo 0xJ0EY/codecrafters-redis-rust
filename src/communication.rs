@@ -50,7 +50,7 @@ pub async fn read_command(stream: &mut TcpStream) -> Result<Command> {
 
             Ok(Command::Psync(psync_args))
         }
-        _ => Err(anyhow!("Unsupported command"))
+        _ => Err(anyhow!(format!("Unsupported command, {}", command)))
     }
 }
 
