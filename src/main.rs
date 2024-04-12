@@ -25,39 +25,11 @@ use crate::replication::{handle_handshake_with_master, needs_to_replicate};
 enum Command {
     Echo(String),
     Ping,
-    Quit,
     Set(String, Entry),
     Get(String),
     Info(String),
     Replconf(Vec<String>),
     Psync(Vec<String>),
-}
-
-impl Command {
-    pub fn to_replica_command(&self) -> Option<ReplicaCommand> {
-        match self {
-            Self::Set(key, entry) => {
-                let message = if entry.expiry_at.is_some() {
-                    Message::Array(vec![
-                        Message::BulkString("set".to_string()),
-                        Message::BulkString(key.clone()),
-                        Message::BulkString(entry.value.clone()),
-                        Message::BulkString("px".to_string()),
-                        Message::BulkString(entry.expiry_time.unwrap().as_millis().to_string())
-                    ])
-                } else {
-                    Message::Array(vec![
-                        Message::BulkString("set".to_string()),
-                        Message::BulkString(key.clone()),
-                        Message::BulkString(entry.value.clone()),
-                    ])
-                };
-                
-                Some(ReplicaCommand { message })
-            }
-            _ => { None }
-        }
-    }
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -110,9 +82,6 @@ async fn handle_master(
                     }
                 }
                 Command::Ping => {},
-                Command::Quit => {
-                    break;
-                }
                 _ => {}
             }
 
@@ -198,21 +167,21 @@ async fn handle_client(
                         }
                     }
                 }
-                Command::Replconf(_) => {
+                Command::Replconf(params) => {
+                    dbg!(params);
                     _ = message_stream.write(Message::simple_string_from_str("OK")).await;
                 }
-                Command::Psync(_) => {
+                Command::Psync(params) => {
+                    dbg!(params);
                     let config = configuration.lock().await;
                     _ = message_stream.write(Message::simple_string(format!("FULLRESYNC {} 0", &config.repl_id).to_string())).await;
 
                     full_resync = true;
                 }
-                Command::Quit => {
-                    break;
-                }
             }
         } else {
             _ = message_stream.write(Message::simple_string_from_str("Invalid message")).await;
+            break;
         }
     }
 }

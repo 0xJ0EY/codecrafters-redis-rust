@@ -1,10 +1,9 @@
-use std::{collections::VecDeque, f32::consts::E, str};
+use std::collections::VecDeque;
 
-use anyhow::{anyhow, bail, Result};
-use bytes::BytesMut;
+use anyhow::{anyhow, Result};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
 
-use crate::{commands::{get_expiry_from_args, get_key_value_from_args}, messages::{self, unpack_string, Message}, store::Entry, Command};
+use crate::{commands::{get_expiry_from_args, get_key_value_from_args}, messages::{unpack_string, Message}, store::Entry, Command};
 
 pub fn parse_client_command(message: &Message) -> Result<Command> {
     let (command, args) = parse_command(message)?;

@@ -23,7 +23,6 @@ impl Message {
 
                 Ok(format!("*{}\r\n{}", parts.len(), parts.join("")))
             },
-            _ => { Err(anyhow!("impl the rest of the values"))}
         }
     }
 
@@ -39,16 +38,8 @@ impl Message {
         Self::SimpleString(value)
     }
 
-    pub fn bulk_string_from_str(value: &str) -> Self {
-        Self::BulkString(value.to_string())
-    }
-
     pub fn bulk_string(value: String) -> Self {
         Self::BulkString(value)
-    }
-
-    pub fn array(values: Vec<Message>) -> Self {
-        Self::Array(values)
     }
 }
 
