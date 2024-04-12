@@ -121,6 +121,9 @@ async fn handle_master(
             // Not the quickest way of doing things, but very easy and accurate
             let message_len = message.serialize().unwrap().as_bytes().len();
             bytes_received += message_len;
+        } else {
+            println!("Unable to get a message from the stream");
+            break;
         }
     }
 }
@@ -237,8 +240,12 @@ async fn main() -> Result<()> {
                     .await
                     .expect("Failed the handshake with the master");
 
+                dbg!(&replica_stream.read_cache);
+
                 // TODO: handle rdb message
                 let _ = replica_stream.get_rdb().await;
+
+                dbg!(&replica_stream.read_cache);
                 
                 handle_master(replica_stream, store, configuration).await;
             });
