@@ -79,7 +79,7 @@ struct CommandLineArgs {
 async fn handle_master(
     mut socket: TcpStream,
     store: Arc<Mutex<Store>>,
-    configuration: Arc<Mutex<ServerConfiguration>>
+    _configuration: Arc<Mutex<ServerConfiguration>>
 ) {
     loop {
         if let Ok(command) = read_command(&mut socket).await {
