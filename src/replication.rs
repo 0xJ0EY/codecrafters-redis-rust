@@ -100,7 +100,6 @@ pub fn replication_channel(mut socket: TcpStream) -> (ReplicaHandle, JoinHandle<
             while let Some(replica_command) = rx.recv().await {
                 write_message(&mut socket, &replica_command.message).await;
             }
-
         }
     });
 

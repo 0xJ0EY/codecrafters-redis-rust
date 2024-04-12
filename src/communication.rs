@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Result};
 use bytes::BytesMut;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
 
-use crate::{commands::{get_expiry_from_args, get_key_value_from_args}, messages::{unpack_string, Message}, store::Entry, Command};
+use crate::{commands::{get_expiry_from_args, get_key_value_from_args}, messages::{self, unpack_string, Message}, store::Entry, Command};
 
 pub fn parse_client_command(message: &Message) -> Result<Command> {
     let (command, args) = parse_command(message)?;
@@ -165,6 +165,22 @@ pub enum ReplicaMessage {
     Response(Message)
 }
 
+impl ReplicaMessage {
+    pub fn is_rdb_file(&self) -> bool {
+        match self {
+            Self::RdbFile(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_response(&self) -> bool {
+        match self {
+            Self::Response(_) => true,
+            _ => false
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ReplicaStream {
     pub stream: TcpStream,
@@ -196,12 +212,14 @@ impl ReplicaStream {
         self.read_cache.pop_front()
     }
 
-    pub async fn get_rdb(&mut self) -> Option<()> {
-        if self.read_cache.is_empty() { self.read_stream().await }
+    pub async fn get_rdb(&mut self) -> Option<String> {
+        self.read_stream().await;
 
-        while !self.read_cache.is_empty() {
-            if let ReplicaMessage::RdbFile(_) = self.read_cache.pop_front().unwrap() {
-                return Some(());
+        let index = self.read_cache.iter().position(|x| x.is_rdb_file());
+
+        if let Some(index) = index {
+            if let ReplicaMessage::RdbFile(rdb) = self.read_cache.remove(index).unwrap() {
+                return Some(rdb);
             }
         }
 
@@ -209,10 +227,12 @@ impl ReplicaStream {
     }
 
     pub async fn get_response(&mut self) -> Option<Message> {
-        if self.read_cache.is_empty() { self.read_stream().await }
+        self.read_stream().await;
 
-        while !self.read_cache.is_empty() {
-            if let ReplicaMessage::Response(message) = self.read_cache.pop_front().unwrap() {
+        let index = self.read_cache.iter().position(|x| x.is_response());
+
+        if let Some(index) = index {
+            if let ReplicaMessage::Response(message) = self.read_cache.remove(index).unwrap() {
                 return Some(message);
             }
         }
@@ -231,8 +251,7 @@ impl ReplicaStream {
 
                 let message = match &data[0] {
                     b'$' => {
-                        index += length; // TODO: Parsing of RDB
-
+                        index += 93; // hardcoded the empty rdb file length
                         ReplicaMessage::RdbFile(String::from("foobar"))
                     },
                     b'+' |b'*' => { 

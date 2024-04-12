@@ -85,9 +85,6 @@ async fn handle_master(
 
     loop {
         if let Some(message) = message_stream.get_response().await {
-            // Not the quickest way of doing things, but very easy and accurate
-            let message_len = message.serialize().unwrap().as_bytes().len(); 
-            bytes_received += message_len;
 
             let command = if let Ok(command) = parse_client_command(&message) {
                 command
@@ -118,6 +115,10 @@ async fn handle_master(
                 }
                 _ => {}
             }
+
+            // Not the quickest way of doing things, but very easy and accurate
+            let message_len = message.serialize().unwrap().as_bytes().len();
+            bytes_received += message_len;
         }
     }
 }
@@ -133,6 +134,9 @@ async fn handle_client(
         if full_resync {
             {
                 let rdb = full_resync_rdb();
+
+                dbg!(&rdb.len());
+
                 _ = message_stream.write_raw(&rdb).await;
             }
 
@@ -148,7 +152,6 @@ async fn handle_client(
         }
 
         if let Some(message) = message_stream.read_message().await {
-
             let command = if let Ok(command) = parse_client_command(&message) {
                 command
             } else {
