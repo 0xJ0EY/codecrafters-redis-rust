@@ -64,46 +64,6 @@ fn parse_command(message: &Message) -> Result<(String, Vec<Message>)> {
     }
 }
 
-// pub async fn read_response(stream: &mut TcpStream) -> Result<Message> {
-//     let mut buffer = BytesMut::with_capacity(512);
-//     let bytes_to_read = stream.read_buf(&mut buffer).await?;
-
-//     if bytes_to_read == 0 { bail!("No bytes to read") }
-
-//     Message::parse(&buffer)
-// }
-
-// pub async fn block_until_response(stream: &mut TcpStream) -> Result<Message> {
-//     loop {
-//         if let Ok(command) = read_response(stream).await {
-//             return Ok(command)
-//         }
-//     }
-// }
-pub async fn write_simple_string(socket: &mut TcpStream, value: &String) {
-    write_message(socket, &Message::SimpleString(value.clone())).await
-}
-
-pub async fn write_bulk_string(socket: &mut TcpStream, value: &String) {
-    write_message(socket, &Message::BulkString(value.clone())).await
-}
-
-pub async fn write_rdb_file(socket: &mut TcpStream, bytes: &Vec<u8>) {
-    let mut content = format!("${}\r\n", bytes.len()).as_bytes().to_vec();
-    content.extend(bytes);
-
-    socket.write(&content).await.expect("Unable to write to socket");
-}
-
-pub async fn write_null_bulk_string(socket: &mut TcpStream) {
-    socket.write(b"$-1\r\n").await.expect("Unable to write to socket");
-}
-
-pub async fn write_message(socket: &mut TcpStream, message: &Message) {
-    if let Ok(serialized) = message.serialize() {
-        socket.write(serialized.as_bytes()).await.expect("Unable to write to socket");
-    }
-}
 
 pub const NULL_BULK_STRING: &[u8] = b"$-1\r\n";
 
@@ -150,8 +110,7 @@ impl MessageStream {
                     self.read_cache.push_back(message);
                     index += offset;
                 } else {
-                    dbg!(&data);
-                    dbg!("Invalid data structure");
+                    println!("Invalid data structure");
                     break;
                 }
             }
@@ -204,16 +163,8 @@ impl ReplicaStream {
         self.write_raw(serialized.as_bytes()).await
     }
 
-    pub async fn read_message(&mut self) -> Option<ReplicaMessage> {
-        if self.read_cache.is_empty() {
-            self.read_stream().await;
-        }
-
-        self.read_cache.pop_front()
-    }
-
     pub async fn get_rdb(&mut self) -> Option<String> {
-        self.read_stream().await;
+        if self.read_cache.is_empty() && !self.read_stream().await { return None; }
 
         let index = self.read_cache.iter().position(|x| x.is_rdb_file());
 
@@ -223,11 +174,11 @@ impl ReplicaStream {
             }
         }
 
-        None 
+        None
     }
 
     pub async fn get_response(&mut self) -> Option<Message> {
-        self.read_stream().await;
+        if self.read_cache.is_empty() && !self.read_stream().await { return None; }
 
         let index = self.read_cache.iter().position(|x| x.is_response());
 
@@ -237,10 +188,10 @@ impl ReplicaStream {
             }
         }
 
-        None 
+        None
     }
 
-    async fn read_stream(&mut self) {
+    async fn read_stream(&mut self) -> bool {
         let mut buffer = [0; 512];
 
         if let Ok(length) = self.stream.read(&mut buffer).await {
@@ -268,6 +219,10 @@ impl ReplicaStream {
 
                 self.read_cache.push_back(message);
             }
+
+            true
+        } else {
+            false
         }
     }
 }

@@ -3,7 +3,7 @@ use std::{net::SocketAddr, sync::Arc, vec};
 use anyhow::{bail, Result};
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::{mpsc::{self, Receiver, Sender}, Mutex}, task::JoinHandle};
 
-use crate::{communication::{write_message, MessageStream, ReplicaStream}, configuration::{self, ReplicationRole, ServerConfiguration}, messages::Message, Command};
+use crate::{communication::{ReplicaStream}, configuration::{self, ReplicationRole, ServerConfiguration}, messages::Message, Command};
 
 pub async fn needs_to_replicate(configuration: &Arc<Mutex<ServerConfiguration>>) -> bool {
     let configuration = configuration.lock().await;
@@ -33,14 +33,16 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
     let mut replica_stream = ReplicaStream::bind(stream);
 
     { // 1. Ping
+        println!("Replication: ping");
+
         let ping_command = Message::Array(vec![Message::BulkString("ping".to_string())]);
         _ = replica_stream.write(ping_command).await;
-        dbg!(replica_stream.get_response().await.is_some());
-
-        dbg!("ping send/received");
+        _ = replica_stream.get_response().await;
     }
 
     { // 2.1 REPLCONF listening port
+        println!("Replication: replconf port");
+
         let listening_port_command = Message::Array(vec![
             Message::BulkString("REPLCONF".to_string()),
             Message::BulkString("listening-port".to_string()),
@@ -48,12 +50,12 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
         ]);
 
         _ = replica_stream.write(listening_port_command).await;
-        dbg!(replica_stream.get_response().await);
-
-        dbg!("replconf port send/received");
+        _ = replica_stream.get_response().await;
     }
 
     { // 2.2 REPLCONF capabilities
+        println!("Replication: replconf capa");
+
         let capability_command = Message::Array(vec![
             Message::BulkString("REPLCONF".to_string()),
             Message::BulkString("capa".to_string()),
@@ -61,12 +63,12 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
         ]);
 
         _ = replica_stream.write(capability_command).await;
-        dbg!(replica_stream.get_response().await);
-
-        dbg!("replconf capa send/received");
+        _ = replica_stream.get_response().await;
     }
 
     { // 3. PSYNC
+        println!("Replication: psync");
+
         let psync_command = Message::Array(vec![
             Message::BulkString("PSYNC".to_string()),
             Message::BulkString("?".to_string()), // replication id
@@ -74,8 +76,7 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
         ]);   
 
         _ = replica_stream.write(psync_command).await;
-        dbg!(replica_stream.get_response().await);
-        dbg!("psync received");
+        _ = replica_stream.get_response().await;
     }
 
     Ok(replica_stream)
@@ -110,4 +111,10 @@ pub fn replication_channel(mut socket: TcpStream) -> (ReplicaHandle, JoinHandle<
         },
         handle
     )
+}
+
+async fn write_message(socket: &mut TcpStream, message: &Message) {
+    if let Ok(serialized) = message.serialize() {
+        socket.write(serialized.as_bytes()).await.expect("Unable to write to socket");
+    }
 }

@@ -11,15 +11,15 @@ mod util;
 
 use anyhow::Result;
 use clap::Parser;
-use communication::{parse_client_command, write_bulk_string, write_message, write_null_bulk_string, write_rdb_file, MessageStream, ReplicaStream, NULL_BULK_STRING};
+use communication::{parse_client_command, MessageStream, ReplicaStream, NULL_BULK_STRING};
 use configuration::ServerConfiguration;
 use info::build_replication_response;
 use messages::Message;
 use replication::{replication_channel, ReplicaCommand};
 use store::{full_resync_rdb, Entry, Store};
-use tokio::{net::{TcpListener, TcpStream}, sync::Mutex};
+use tokio::{net::TcpListener, sync::Mutex};
 
-use crate::{communication::write_simple_string, replication::{handle_handshake_with_master, needs_to_replicate}};
+use crate::replication::{handle_handshake_with_master, needs_to_replicate};
 
 #[derive(Debug, Clone)]
 enum Command {
@@ -84,8 +84,6 @@ async fn handle_master(
     let mut bytes_received = 0;
 
     loop {
-        dbg!(&message_stream.read_cache);
-
         if let Some(message) = message_stream.get_response().await {
 
             let command = if let Ok(command) = parse_client_command(&message) {
@@ -139,8 +137,6 @@ async fn handle_client(
         if full_resync {
             {
                 let rdb = full_resync_rdb();
-
-                dbg!(&rdb.len());
 
                 _ = message_stream.write_raw(&rdb).await;
             }
@@ -240,12 +236,8 @@ async fn main() -> Result<()> {
                     .await
                     .expect("Failed the handshake with the master");
 
-                dbg!(&replica_stream.read_cache);
-
                 // TODO: handle rdb message
                 let _ = replica_stream.get_rdb().await;
-
-                dbg!(&replica_stream.read_cache);
                 
                 handle_master(replica_stream, store, configuration).await;
             });
