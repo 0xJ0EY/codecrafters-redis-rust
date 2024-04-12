@@ -35,7 +35,7 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
     { // 1. Ping
         let ping_command = Message::Array(vec![Message::BulkString("ping".to_string())]);
         _ = replica_stream.write(ping_command).await;
-        _ = replica_stream.read_message().await;
+        dbg!(replica_stream.get_response().await.is_some());
 
         dbg!("ping send/received");
     }
@@ -48,7 +48,7 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
         ]);
 
         _ = replica_stream.write(listening_port_command).await;
-        _ = replica_stream.read_message().await;
+        dbg!(replica_stream.get_response().await);
 
         dbg!("replconf port send/received");
     }
@@ -61,7 +61,7 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
         ]);
 
         _ = replica_stream.write(capability_command).await;
-        _ = replica_stream.read_message().await;
+        dbg!(replica_stream.get_response().await);
 
         dbg!("replconf capa send/received");
     }
@@ -74,7 +74,7 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
         ]);   
 
         _ = replica_stream.write(psync_command).await;
-        _ = replica_stream.read_message().await;
+        dbg!(replica_stream.get_response().await);
         dbg!("psync received");
     }
 

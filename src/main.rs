@@ -84,6 +84,8 @@ async fn handle_master(
     let mut bytes_received = 0;
 
     loop {
+        dbg!(&message_stream.read_cache);
+
         if let Some(message) = message_stream.get_response().await {
 
             let command = if let Ok(command) = parse_client_command(&message) {
@@ -236,7 +238,7 @@ async fn main() -> Result<()> {
                     .expect("Failed the handshake with the master");
 
                 // TODO: handle rdb message
-                let _ = replica_stream.get_rdb();
+                let _ = replica_stream.get_rdb().await;
                 
                 handle_master(replica_stream, store, configuration).await;
             });
