@@ -81,8 +81,14 @@ async fn handle_master(
     store: Arc<Mutex<Store>>,
     _configuration: Arc<Mutex<ServerConfiguration>>
 ) {
+    let mut bytes_received = 0;
+
     loop {
         if let Some(message) = message_stream.get_response().await {
+            // Not the quickest way of doing things, but very easy and accurate
+            let message_len = message.serialize().unwrap().as_bytes().len(); 
+            bytes_received += message_len;
+
             let command = if let Ok(command) = parse_client_command(&message) {
                 command
             } else {
@@ -100,12 +106,11 @@ async fn handle_master(
                         let message = Message::Array(vec![
                             Message::BulkString("REPLCONF".to_string()),
                             Message::BulkString("ACK".to_string()),
-                            Message::BulkString("0".to_string()),
+                            Message::BulkString(bytes_received.to_string()),
                         ]);
 
                         _ = message_stream.write(message).await;
                     }
-
                 }
                 Command::Ping => {},
                 Command::Quit => {
