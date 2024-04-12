@@ -1,15 +1,13 @@
+use std::{collections::VecDeque, f32::consts::E, str};
+
 use anyhow::{anyhow, bail, Result};
 use bytes::BytesMut;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
 
 use crate::{commands::{get_expiry_from_args, get_key_value_from_args}, messages::{unpack_string, Message}, store::Entry, Command};
 
-pub async fn read_command(stream: &mut TcpStream) -> Result<Command> {
-    let mut buffer = BytesMut::with_capacity(512);
-    let bytes_to_read = stream.read_buf(&mut buffer).await?;
-
-    if bytes_to_read == 0 { return Ok(Command::Quit); }
-    let (command, args) = parse_command(&buffer)?;
+pub fn parse_client_command(message: &Message) -> Result<Command> {
+    let (command, args) = parse_command(message)?;
     let command = command.to_lowercase();
 
     match command.as_str() {
@@ -54,13 +52,11 @@ pub async fn read_command(stream: &mut TcpStream) -> Result<Command> {
     }
 }
 
-fn parse_command(buffer: &BytesMut) -> Result<(String, Vec<Message>)> {
-    let message = Message::parse(buffer)?;
-
+fn parse_command(message: &Message) -> Result<(String, Vec<Message>)> {
     match message {
         Message::Array(x) => { 
             let command = unpack_string(x.first().unwrap())?;
-            let args = x.into_iter().skip(1).collect();
+            let args = x.clone().into_iter().skip(1).collect();
 
             Ok((command, args))
         },
@@ -68,22 +64,22 @@ fn parse_command(buffer: &BytesMut) -> Result<(String, Vec<Message>)> {
     }
 }
 
-pub async fn read_response(stream: &mut TcpStream) -> Result<Message> {
-    let mut buffer = BytesMut::with_capacity(512);
-    let bytes_to_read = stream.read_buf(&mut buffer).await?;
+// pub async fn read_response(stream: &mut TcpStream) -> Result<Message> {
+//     let mut buffer = BytesMut::with_capacity(512);
+//     let bytes_to_read = stream.read_buf(&mut buffer).await?;
 
-    if bytes_to_read == 0 { bail!("No bytes to read") }
+//     if bytes_to_read == 0 { bail!("No bytes to read") }
 
-    Message::parse(&buffer)
-}
+//     Message::parse(&buffer)
+// }
 
-pub async fn block_until_response(stream: &mut TcpStream) -> Result<Message> {
-    loop {
-        if let Ok(command) = read_response(stream).await {
-            return Ok(command)
-        }
-    }
-}
+// pub async fn block_until_response(stream: &mut TcpStream) -> Result<Message> {
+//     loop {
+//         if let Ok(command) = read_response(stream).await {
+//             return Ok(command)
+//         }
+//     }
+// }
 pub async fn write_simple_string(socket: &mut TcpStream, value: &String) {
     write_message(socket, &Message::SimpleString(value.clone())).await
 }
@@ -106,5 +102,153 @@ pub async fn write_null_bulk_string(socket: &mut TcpStream) {
 pub async fn write_message(socket: &mut TcpStream, message: &Message) {
     if let Ok(serialized) = message.serialize() {
         socket.write(serialized.as_bytes()).await.expect("Unable to write to socket");
+    }
+}
+
+pub const NULL_BULK_STRING: &[u8] = b"$-1\r\n";
+
+pub struct MessageStream {
+    pub stream: TcpStream,
+    pub read_cache: VecDeque<Message>,
+}
+
+impl MessageStream {
+    pub fn bind(stream: TcpStream) -> Self {
+        Self { stream, read_cache: VecDeque::new() }
+    }
+
+    pub async fn write_raw(&mut self, data: &[u8]) -> Result<()> {
+        self.stream.write_all(data).await?;
+        self.stream.flush().await?;
+
+        Ok(())
+    }
+
+    pub async fn write(&mut self, message: Message) -> Result<()> {
+        let serialized = message.serialize()?;
+        self.write_raw(serialized.as_bytes()).await
+    }
+
+    pub async fn read_message(&mut self) -> Option<Message> {
+        if self.read_cache.is_empty() {
+            self.read_stream().await;
+        }
+
+        self.read_cache.pop_front()
+    }
+
+    async fn read_stream(&mut self) {
+        let mut buffer = [0; 512];
+
+        if let Ok(length) = self.stream.read(&mut buffer).await {
+            let mut index = 0;
+
+            while index < length {
+                let data = &buffer[index..length];
+
+                if let Ok((message, offset)) = Message::parse(data) {
+                    self.read_cache.push_back(message);
+                    index += offset;
+                } else {
+                    dbg!(&data);
+                    dbg!("Invalid data structure");
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ReplicaMessage {
+    RdbFile(String),
+    Response(Message)
+}
+
+#[derive(Debug)]
+pub struct ReplicaStream {
+    pub stream: TcpStream,
+    pub read_cache: VecDeque<ReplicaMessage>
+}
+
+impl ReplicaStream {
+    pub fn bind(stream: TcpStream) -> Self {
+        Self { stream, read_cache: VecDeque::new() }
+    }
+
+    pub async fn write_raw(&mut self, data: &[u8]) -> Result<()> {
+        self.stream.write_all(data).await?;
+        self.stream.flush().await?;
+
+        Ok(())
+    }
+
+    pub async fn write(&mut self, message: Message) -> Result<()> {
+        let serialized = message.serialize()?;
+        self.write_raw(serialized.as_bytes()).await
+    }
+
+    pub async fn read_message(&mut self) -> Option<ReplicaMessage> {
+        if self.read_cache.is_empty() {
+            self.read_stream().await;
+        }
+
+        self.read_cache.pop_front()
+    }
+
+    pub async fn get_rdb(&mut self) -> Option<()> {
+        if self.read_cache.is_empty() { self.read_stream().await }
+
+        while !self.read_cache.is_empty() {
+            if let ReplicaMessage::RdbFile(_) = self.read_cache.pop_front().unwrap() {
+                return Some(());
+            }
+        }
+
+        None 
+    }
+
+    pub async fn get_response(&mut self) -> Option<Message> {
+        if self.read_cache.is_empty() { self.read_stream().await }
+
+        while !self.read_cache.is_empty() {
+            if let ReplicaMessage::Response(message) = self.read_cache.pop_front().unwrap() {
+                return Some(message);
+            }
+        }
+
+        None 
+    }
+
+    async fn read_stream(&mut self) {
+        let mut buffer = [0; 512];
+
+        if let Ok(length) = self.stream.read(&mut buffer).await {
+            let mut index = 0;
+
+            while index < length {
+                let data: &[u8] = &buffer[index..length];
+
+                let message = match &data[0] {
+                    b'$' => {
+                        index += length; // TODO: Parsing of RDB
+
+                        ReplicaMessage::RdbFile(String::from("foobar"))
+                    },
+                    b'+' |b'*' => { 
+                        let (message, offset) = Message::parse(data).unwrap();
+
+                        index += offset;
+
+                        ReplicaMessage::Response(message)
+                    },
+                    _ => {
+                        todo!("unsupported file format");
+                    }
+                };
+
+                self.read_cache.push_back(message);
+            }
+        }
     }
 }

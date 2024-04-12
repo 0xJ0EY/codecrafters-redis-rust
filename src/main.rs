@@ -11,7 +11,7 @@ mod util;
 
 use anyhow::Result;
 use clap::Parser;
-use communication::{read_command, write_bulk_string, write_message, write_null_bulk_string, write_rdb_file};
+use communication::{parse_client_command, write_bulk_string, write_message, write_null_bulk_string, write_rdb_file, MessageStream, ReplicaStream, NULL_BULK_STRING};
 use configuration::ServerConfiguration;
 use info::build_replication_response;
 use messages::Message;
@@ -77,12 +77,18 @@ struct CommandLineArgs {
 }
 
 async fn handle_master(
-    mut socket: TcpStream,
+    mut message_stream: ReplicaStream,
     store: Arc<Mutex<Store>>,
     _configuration: Arc<Mutex<ServerConfiguration>>
 ) {
     loop {
-        if let Ok(command) = read_command(&mut socket).await {
+        if let Some(message) = message_stream.get_response().await {
+            let command = if let Ok(command) = parse_client_command(&message) {
+                command
+            } else {
+                continue;
+            };
+
             match command {
                 Command::Set(key, value) => {
                     store.lock().await.set(key, value);
@@ -97,7 +103,7 @@ async fn handle_master(
                             Message::BulkString("0".to_string()),
                         ]);
 
-                        write_message(&mut socket, &message).await;
+                        _ = message_stream.write(message).await;
                     }
 
                 }
@@ -108,11 +114,11 @@ async fn handle_master(
                 _ => {}
             }
         }
-    }    
+    }
 }
 
 async fn handle_client(
-    mut socket: TcpStream,
+    mut message_stream: MessageStream,
     store: Arc<Mutex<Store>>,
     configuration: Arc<Mutex<ServerConfiguration>>
 ) {
@@ -122,10 +128,10 @@ async fn handle_client(
         if full_resync {
             {
                 let rdb = full_resync_rdb();
-                write_rdb_file(&mut socket, &rdb).await;
+                _ = message_stream.write_raw(&rdb).await;
             }
 
-            let (replication_handle, handle) = replication_channel(socket);
+            let (replication_handle, handle) = replication_channel(message_stream.stream);
 
             { // Block scope is needed for RAII, due to handle.await leaving the scope *alive*
                 let config = configuration.lock().await;
@@ -136,59 +142,59 @@ async fn handle_client(
             return;
         }
 
-        let command = read_command(&mut socket).await;
+        if let Some(message) = message_stream.read_message().await {
 
-        if let Ok(command) = command {
-            let cloned_command = command.clone();
+            let command = if let Ok(command) = parse_client_command(&message) {
+                command
+            } else {
+                _ = message_stream.write(Message::simple_string_from_str("Invalid command")).await;
+                continue;
+            };
 
             match command {
                 Command::Ping => {
-                    write_simple_string(&mut socket, &"PONG".to_string()).await;
+                    _ = message_stream.write(Message::simple_string_from_str("PONG")).await;
                 },
                 Command::Echo(value) => {
-                    write_bulk_string(&mut socket, &value).await;
+                    _ = message_stream.write(Message::bulk_string(value)).await;
                 },
                 Command::Set(key, value) => {
                     store.lock().await.set(key, value);
 
                     for replication in configuration.lock().await.replication_handles.lock().await.iter_mut() {
-                        if let Some(replica_command) = cloned_command.to_replica_command() {
-                            _ = replication.tx.send(replica_command).await;
-                        }
+                        _ = replication.tx.send(ReplicaCommand { message: message.clone() }).await;
                     }
 
-                    write_simple_string(&mut socket, &"OK".to_string()).await;
+                    _ = message_stream.write(Message::simple_string_from_str("OK")).await;
                 },
                 Command::Get(key) => {
                     if let Some(entry) = store.lock().await.get(key) {
-                        write_bulk_string(&mut socket, &entry.value).await;
+                        _ = message_stream.write(Message::bulk_string(entry.value.clone())).await;
                     } else {
-                        write_null_bulk_string(&mut socket).await;
+                        _ = message_stream.write_raw(NULL_BULK_STRING).await;
                     }
                 },
                 Command::Info(section) => {
                     match section.to_ascii_lowercase().as_str() {
                         "replication" => {
                             let config = configuration.lock().await;
-
-                            write_bulk_string(&mut socket, &build_replication_response(&config)).await;
+                            _ = message_stream.write(Message::bulk_string(build_replication_response(&config))).await;
                         },
                         "" => {
                             let config = configuration.lock().await;
-
-                            write_bulk_string(&mut socket, &build_replication_response(&config)).await;
+                            _ = message_stream.write(Message::bulk_string(build_replication_response(&config))).await;
                         },
                         _ => {
-                            write_simple_string(&mut socket, &"Invalid replication".to_string()).await;
+                            _ = message_stream.write(Message::simple_string_from_str("Invalid replication")).await;
                         }
                     }
                 }
                 Command::Replconf(_) => {
-                    write_simple_string(&mut socket, &"OK".to_string()).await;
+                    _ = message_stream.write(Message::simple_string_from_str("OK")).await;
                 }
                 Command::Psync(_) => {
                     let config = configuration.lock().await;
-                    write_simple_string(&mut socket, &format!("FULLRESYNC {} 0", &config.repl_id).to_string()).await;
+                    _ = message_stream.write(Message::simple_string(format!("FULLRESYNC {} 0", &config.repl_id).to_string())).await;
 
                     full_resync = true;
                 }
@@ -197,8 +203,7 @@ async fn handle_client(
                 }
             }
         } else {
-            dbg!(&command);
-            write_simple_string(&mut socket, &"Invalid command".to_string()).await;
+            _ = message_stream.write(Message::simple_string_from_str("Invalid message")).await;
         }
     }
 }
@@ -218,11 +223,14 @@ async fn main() -> Result<()> {
             let configuration = configuration.clone();
 
             tokio::spawn(async move {
-                let socket = handle_handshake_with_master(config)
+                let mut replica_stream = handle_handshake_with_master(config)
                     .await
                     .expect("Failed the handshake with the master");
 
-                handle_master(socket, store, configuration).await;
+                // TODO: handle rdb message
+                let _ = replica_stream.get_rdb();
+                
+                handle_master(replica_stream, store, configuration).await;
             });
         }
 
@@ -233,11 +241,13 @@ async fn main() -> Result<()> {
     
     loop {
         let (socket, _) = listener.accept().await?;
+        let message_stream = MessageStream::bind(socket);
+
         let store = store.clone();
         let configuration = configuration.clone();
 
         tokio::spawn(async move {
-            handle_client(socket, store, configuration).await;
+            handle_client(message_stream, store, configuration).await;
         });
     }
 }

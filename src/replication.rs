@@ -3,7 +3,7 @@ use std::{net::SocketAddr, sync::Arc, vec};
 use anyhow::{bail, Result};
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::{mpsc::{self, Receiver, Sender}, Mutex}, task::JoinHandle};
 
-use crate::{communication::{block_until_response, write_message}, configuration::{self, ReplicationRole, ServerConfiguration}, messages::Message, Command};
+use crate::{communication::{write_message, MessageStream, ReplicaStream}, configuration::{self, ReplicationRole, ServerConfiguration}, messages::Message, Command};
 
 pub async fn needs_to_replicate(configuration: &Arc<Mutex<ServerConfiguration>>) -> bool {
     let configuration = configuration.lock().await;
@@ -21,7 +21,7 @@ fn get_master_socket_addr(configuration: &ServerConfiguration) -> Option<SocketA
     }
 }
 
-pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfiguration>>) -> Result<TcpStream> {   
+pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfiguration>>) -> Result<ReplicaStream> {   
     let configuration = configuration.lock().await;
 
     let socket_addr = get_master_socket_addr(&configuration);
@@ -29,15 +29,15 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
 
     let socket_addr = socket_addr.unwrap();
 
-    let mut stream = TcpStream::connect(socket_addr).await?;
+    let stream = TcpStream::connect(socket_addr).await?;
+    let mut replica_stream = ReplicaStream::bind(stream);
 
-    { // 1. Ping command
+    { // 1. Ping
         let ping_command = Message::Array(vec![Message::BulkString("ping".to_string())]);
+        _ = replica_stream.write(ping_command).await;
+        _ = replica_stream.read_message().await;
 
-        write_message(&mut stream, &ping_command).await;
-    
-        let ping_resp = block_until_response(&mut stream).await?;
-        dbg!(ping_resp);
+        dbg!("ping send/received");
     }
 
     { // 2.1 REPLCONF listening port
@@ -47,10 +47,10 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
             Message::BulkString(configuration.socket_address.port().to_string())
         ]);
 
-        write_message(&mut stream, &listening_port_command).await;
-    
-        let listening_port_resp: Message = block_until_response(&mut stream).await?;
-        dbg!(listening_port_resp);
+        _ = replica_stream.write(listening_port_command).await;
+        _ = replica_stream.read_message().await;
+
+        dbg!("replconf port send/received");
     }
 
     { // 2.2 REPLCONF capabilities
@@ -60,10 +60,10 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
             Message::BulkString("psync2".to_string())
         ]);
 
-        write_message(&mut stream, &capability_command).await;
+        _ = replica_stream.write(capability_command).await;
+        _ = replica_stream.read_message().await;
 
-        let capability_command_resp = block_until_response(&mut stream).await?;
-        dbg!(capability_command_resp);
+        dbg!("replconf capa send/received");
     }
 
     { // 3. PSYNC
@@ -71,15 +71,14 @@ pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfigu
             Message::BulkString("PSYNC".to_string()),
             Message::BulkString("?".to_string()), // replication id
             Message::BulkString("-1".to_string()) // replication offset
-        ]);
+        ]);   
 
-        write_message(&mut stream, &psync_command).await;
-
-        let psync_command_resp = block_until_response(&mut stream).await?;
-        dbg!(psync_command_resp);
+        _ = replica_stream.write(psync_command).await;
+        _ = replica_stream.read_message().await;
+        dbg!("psync received");
     }
 
-    Ok(stream)
+    Ok(replica_stream)
 }
 
 #[derive(Debug)]
@@ -99,8 +98,6 @@ pub fn replication_channel(mut socket: TcpStream) -> (ReplicaHandle, JoinHandle<
     let handle = tokio::spawn(async move {
         loop {
             while let Some(replica_command) = rx.recv().await {
-
-                dbg!(&socket);
                 write_message(&mut socket, &replica_command.message).await;
             }
 

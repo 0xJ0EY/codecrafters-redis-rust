@@ -27,14 +27,32 @@ impl Message {
         }
     }
 
-    pub fn parse(bytes: &BytesMut) -> Result<Self> {
-        let (message, _) = parse_message(bytes)?;
+    pub fn parse(bytes: &[u8]) -> Result<(Self, usize)> {
+        parse_message(bytes)
+    }
 
-        Ok(message)
+    pub fn simple_string_from_str(value: &str) -> Self {
+        Self::SimpleString(value.to_string())
+    }
+
+    pub fn simple_string(value: String) -> Self {
+        Self::SimpleString(value)
+    }
+
+    pub fn bulk_string_from_str(value: &str) -> Self {
+        Self::BulkString(value.to_string())
+    }
+
+    pub fn bulk_string(value: String) -> Self {
+        Self::BulkString(value)
+    }
+
+    pub fn array(values: Vec<Message>) -> Self {
+        Self::Array(values)
     }
 }
 
-fn parse_message(bytes: &BytesMut) -> Result<(Message, usize)> {
+fn parse_message(bytes: &[u8]) -> Result<(Message, usize)> {
    match bytes[0] as char {
         '*' => parse_array(bytes),
         '+' => parse_simple_string(bytes),
@@ -43,7 +61,7 @@ fn parse_message(bytes: &BytesMut) -> Result<(Message, usize)> {
     }
 }
 
-fn parse_array(bytes: &BytesMut) -> Result<(Message, usize)> {
+fn parse_array(bytes: &[u8]) -> Result<(Message, usize)> {
     let (array_items, mut bytes_consumed) = if let Some((line, len)) = read_until_crlf(&bytes[1..]) {
         let array_items = parse_int(line).unwrap();
 
@@ -64,7 +82,7 @@ fn parse_array(bytes: &BytesMut) -> Result<(Message, usize)> {
     Ok((Message::Array(items), bytes_consumed))
 }
 
-fn parse_simple_string(bytes: &BytesMut) -> Result<(Message, usize)> {
+fn parse_simple_string(bytes: &[u8]) -> Result<(Message, usize)> {
     if let Some((line, len)) = read_until_crlf(&bytes[1..]) {
         let string = String::from_utf8(line.to_vec())?;
 
@@ -74,7 +92,7 @@ fn parse_simple_string(bytes: &BytesMut) -> Result<(Message, usize)> {
     Err(anyhow!("Invalid simple string, {:?}", bytes))
 }
 
-fn parse_bulk_string(bytes: &BytesMut) -> Result<(Message, usize)> {
+fn parse_bulk_string(bytes: &[u8]) -> Result<(Message, usize)> {
     let (str_len, bytes_consumed) = if let Some((line, len)) = read_until_crlf(&bytes[1..]) {
         let str_len = parse_int(line).unwrap();
 

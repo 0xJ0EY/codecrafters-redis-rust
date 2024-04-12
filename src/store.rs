@@ -56,6 +56,8 @@ impl Store {
 
 pub fn full_resync_rdb() -> Vec<u8> {
     const EMPTY_RDB: &str = include_str!("empty_rdb.hex");
-
-    decode_hex(EMPTY_RDB).unwrap_or_default()
+    let content = decode_hex(EMPTY_RDB).unwrap_or_default();
+    let header = format!("${}\r\n", content.len()).as_bytes().to_vec();
+    
+    [header, content].concat()
 }
