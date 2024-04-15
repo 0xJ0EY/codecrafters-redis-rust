@@ -1,4 +1,4 @@
-use std::{net::IpAddr, sync::Arc, vec};
+use std::{net::IpAddr, sync::Arc, time::Duration, vec};
 
 mod communication;
 mod messages;
@@ -30,7 +30,7 @@ enum Command {
     Info(String),
     Replconf(Vec<String>),
     Psync(Vec<String>),
-    Wait(usize, usize)
+    Wait(usize, u64)
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -111,7 +111,7 @@ async fn handle_client(
                 _ = message_stream.write_raw(&rdb).await;
             }
 
-            let (replication_handle, handle) = replication_channel(message_stream.stream);
+            let (replication_handle, handle) = replication_channel(message_stream);
 
             { // Block scope is needed for RAII, due to handle.await leaving the scope *alive*
                 configuration.replication_handles.lock().await.push(replication_handle);
@@ -139,7 +139,7 @@ async fn handle_client(
                 Command::Set(key, value) => {
                     store.lock().await.set(key, value);
                     for replication in configuration.replication_handles.lock().await.iter_mut() {
-                        _ = replication.tx.send(ReplicaCommand { message: message.clone() }).await;
+                        _ = replication.tx.send(ReplicaCommand::new(message.clone())).await;
                     }
 
                     _ = message_stream.write(Message::simple_string_from_str("OK")).await;
@@ -165,19 +165,43 @@ async fn handle_client(
                     }
                 }
                 Command::Replconf(params) => {
-                    dbg!(params);
                     _ = message_stream.write(Message::simple_string_from_str("OK")).await;
                 }
                 Command::Psync(params) => {
-                    dbg!(params);
                     _ = message_stream.write(Message::simple_string(format!("FULLRESYNC {} 0", &configuration.repl_id).to_string())).await;
 
                     full_resync = true;
                 }
-                Command::Wait(_replication, _wait_time) => {
-                    let num_replicas = configuration.replication_handles.lock().await.len();
+                Command::Wait(_replications, wait_time) => {
+                    // No clue where the replications are needed
+                    // But if we have replications available, and set commands have been called (store length != 0)
+                    // We query all replications, and wait if they respond to the ack command.
+                    // Otherwise, return all the replications we know about
 
-                    _ = message_stream.write(Message::Integer(num_replicas as isize)).await;
+                    if store.lock().await.len() == 0 {
+                        let num_replicas = configuration.replication_handles.lock().await.len();
+                        _ = message_stream.write(Message::Integer(num_replicas as isize)).await;
+                    } else {
+                        let mut count = 0;
+                        
+                        for replication in configuration.replication_handles.lock().await.iter_mut() {
+                            let ack_message = Message::Array(vec![
+                                Message::BulkString("REPLCONF".to_string()),
+                                Message::BulkString("GETACK".to_string()),
+                                Message::BulkString("*".to_string()),
+                            ]);
+
+                            _ = replication.tx.send(ReplicaCommand::with_timeout(ack_message, Duration::from_millis(wait_time))).await;
+                        }
+
+                        for replication in configuration.replication_handles.lock().await.iter_mut() {
+                            let response = replication.rx.recv().await.unwrap();
+
+                            if !response.expired { count += 1; }
+                        }
+
+                        _ = message_stream.write(Message::Integer(count)).await;
+                    }
                 }
             }
         } else {

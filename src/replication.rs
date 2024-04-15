@@ -1,9 +1,10 @@
-use std::{net::SocketAddr, sync::Arc, vec};
+use core::time;
+use std::{net::SocketAddr, sync::Arc, time::Duration, vec};
 
 use anyhow::{bail, Result};
-use tokio::{io::AsyncWriteExt, net::TcpStream, sync::mpsc::{self, Receiver, Sender}, task::JoinHandle};
+use tokio::{io::AsyncWriteExt, net::TcpStream, sync::mpsc::{self, Receiver, Sender}, task::JoinHandle, time::timeout};
 
-use crate::{communication::ReplicaStream, configuration::{ReplicationRole, ServerConfiguration}, messages::Message};
+use crate::{communication::{MessageStream, ReplicaStream}, configuration::{ReplicationRole, ServerConfiguration}, messages::Message};
 
 pub async fn needs_to_replicate(configuration: &Arc<ServerConfiguration>) -> bool {
     let configuration = configuration;
@@ -84,22 +85,56 @@ pub async fn handle_handshake_with_master(configuration: Arc<ServerConfiguration
 
 #[derive(Debug)]
 pub struct ReplicaCommand {
-    pub message: Message
+    pub message: Message,
+    pub timeout: Option<Duration>
 }
+
+impl ReplicaCommand {
+    pub fn new(message: Message) -> Self {
+        Self { message, timeout: None }
+    }
+
+    pub fn with_timeout(message: Message, duration : Duration) -> Self {
+        Self { message, timeout: Some(duration) }
+    }
+}
+
+#[derive(Debug)]
+pub struct ReplicaResponse {
+    pub expired: bool
+}
+
+impl ReplicaResponse {
+    pub fn received() -> Self {
+        Self { expired: false }
+    }
+
+    pub fn expired() -> Self {
+        Self { expired: true }
+    }
+}
+
 #[derive(Debug)]
 pub struct ReplicaHandle {
     pub tx: Sender<ReplicaCommand>,
-    pub rx: Receiver<ReplicaCommand>,
+    pub rx: Receiver<ReplicaResponse>,
 }
 
-pub fn replication_channel(mut socket: TcpStream) -> (ReplicaHandle, JoinHandle<()>) {
+pub fn replication_channel(mut message_stream: MessageStream) -> (ReplicaHandle, JoinHandle<()>) {
     let (tx_res, mut rx) = mpsc::channel::<ReplicaCommand>(32);
-    let (_tx, rx_res) = mpsc::channel::<ReplicaCommand>(32);
+    let (tx, rx_res) = mpsc::channel::<ReplicaResponse>(32);
 
     let handle = tokio::spawn(async move {
         loop {
             while let Some(replica_command) = rx.recv().await {
-                write_message(&mut socket, &replica_command.message).await;
+                write_message(&mut message_stream.stream, &replica_command.message).await;
+
+                if let Some(duration) = replica_command.timeout {
+                    let timed_out = timeout(duration, message_stream.read_message()).await.is_err();
+                    let response = if timed_out { ReplicaResponse::expired() } else { ReplicaResponse::received() };
+
+                    _ = tx.send(response).await;
+                }
             }
         }
     });

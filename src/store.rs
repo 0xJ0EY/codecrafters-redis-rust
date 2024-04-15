@@ -52,6 +52,10 @@ impl Store {
 
         Some(entry)
     }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
 }
 
 pub fn full_resync_rdb() -> Vec<u8> {

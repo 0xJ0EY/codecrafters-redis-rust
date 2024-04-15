@@ -30,7 +30,7 @@ pub fn get_expiry_from_args(args: &Vec<Message>) -> Option<Duration> {
     None
 }
 
-pub fn get_wait_args(args: &Vec<Message>) -> Result<(usize, usize)> {
+pub fn get_wait_args(args: &Vec<Message>) -> Result<(usize, u64)> {
     if args.len() < 2 { bail!("Incomplete command for wait") }
 
     let num_replicas = unpack_string(args.get(0)
@@ -39,7 +39,7 @@ pub fn get_wait_args(args: &Vec<Message>) -> Result<(usize, usize)> {
 
     let timeout = unpack_string(args.get(1)
         .unwrap())?
-        .parse::<usize>()?;
+        .parse::<u64>()?;
 
     Ok((num_replicas, timeout))
 }
