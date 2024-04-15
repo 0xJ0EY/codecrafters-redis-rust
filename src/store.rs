@@ -58,6 +58,10 @@ impl Store {
     pub fn len(&self) -> usize {
         self.data.len()
     }
+
+    pub fn import(&mut self, data: &Vec<u8>) {
+        parse_rdb(self, data)
+    }
 }
 
 pub fn full_resync_rdb() -> Vec<u8> {
@@ -88,4 +92,23 @@ pub async fn read_rdb_from_file(information: &Arc<ServerInformation>) -> Option<
     _ = f.read(&mut buffer).await;
 
     Some(buffer)
+}
+
+
+fn parse_magic_number(data: &Vec<u8>, marker: &mut usize) -> bool {
+    let magic_number = b"REDIS";
+
+    *marker += magic_number.len();
+
+    magic_number == &data[0..magic_number.len()]
+}
+
+fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
+    let mut marker = 0;
+
+    if !parse_magic_number(data, &mut marker) { return; }
+    
+
+
+    dbg!(marker);
 }

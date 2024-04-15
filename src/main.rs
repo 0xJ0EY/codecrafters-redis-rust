@@ -252,6 +252,10 @@ async fn main() -> Result<()> {
 
     {
         let rdb_content = read_rdb_from_file(&information).await;
+
+        if let Some(data) = rdb_content {
+            store.lock().await.import(&data);
+        }
     }
 
     let socket_address = {
