@@ -17,7 +17,7 @@ use configuration::ServerInformation;
 use info::build_replication_response;
 use messages::Message;
 use replication::{replication_channel, ReplicaCommand};
-use store::{full_resync_rdb, Entry, Store};
+use store::{full_resync_rdb, read_rdb_from_file, Entry, Store};
 use tokio::{net::TcpListener, sync::Mutex};
 
 use crate::replication::{handle_handshake_with_master, needs_to_replicate};
@@ -249,6 +249,10 @@ async fn main() -> Result<()> {
     // Load config values from param
     if let Some(dir) = args.dir { information.config.lock().await.dir = Some(dir); }
     if let Some(dbfilename) = args.dbfilename { information.config.lock().await.dbfilename = Some(dbfilename); }
+
+    {
+        let rdb_content = read_rdb_from_file(&information).await;
+    }
 
     let socket_address = {
         if needs_to_replicate(&information).await {

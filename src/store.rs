@@ -1,6 +1,8 @@
-use std::{collections::HashMap, time::{Duration, SystemTime}};
+use std::{collections::HashMap, env, path::Path, sync::Arc, time::{Duration, SystemTime}};
 
-use crate::util::decode_hex;
+use tokio::{fs::{metadata, File}, io::AsyncReadExt};
+
+use crate::{configuration::ServerInformation, util::decode_hex};
 
 #[derive(Debug, Clone)]
 pub struct Entry {
@@ -64,4 +66,26 @@ pub fn full_resync_rdb() -> Vec<u8> {
     let header = format!("${}\r\n", content.len()).as_bytes().to_vec();
     
     [header, content].concat()
+}
+
+pub async fn read_rdb_from_file(information: &Arc<ServerInformation>) -> Option<Vec<u8>> {
+    let config = information.config.lock().await;
+
+    let directory = config.dir.clone();
+    let filename = config.dbfilename.clone();
+
+    let file_name = if let Some(filename) = filename { filename } else { return None };
+
+    let current_dir = env::current_dir().unwrap().into_os_string().into_string().unwrap();
+    let directory = directory.unwrap_or(current_dir);
+
+    let path = Path::new(&directory).join(Path::new(&file_name));
+
+    let mut f = if let Ok(file) = File::open(&path).await { file } else { return None; };
+    let metadata = if let Ok(metadata) = metadata(&path).await { metadata } else { return None; };
+    let mut buffer = vec![0; metadata.len() as usize];
+
+    _ = f.read(&mut buffer).await;
+
+    Some(buffer)
 }
