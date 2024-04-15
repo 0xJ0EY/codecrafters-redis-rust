@@ -171,10 +171,10 @@ async fn handle_client(
                         }
                     }
                 }
-                Command::Replconf(params) => {
+                Command::Replconf(_params) => {
                     _ = message_stream.write(Message::simple_string_from_str("OK")).await;
                 }
-                Command::Psync(params) => {
+                Command::Psync(_params) => {
                     _ = message_stream.write(Message::simple_string(format!("FULLRESYNC {} 0", &information.repl_id).to_string())).await;
 
                     full_resync = true;
