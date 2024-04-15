@@ -34,6 +34,14 @@ impl ServerConfiguration {
             dbfilename: None
         }
     }
+
+    pub fn get_value(&self, key: &str) -> Option<String> {
+        match key.to_lowercase().as_str() {
+            "dir" => { self.dir.clone() },
+            "dbfilename" => { self.dbfilename.clone() },
+            _ => { None }
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -12,6 +12,15 @@ pub fn get_key_value_from_args(args: &Vec<Message>) -> Result<(String, String)> 
     Ok((key, value))
 }
 
+pub fn get_config_params_from_args(args: &Vec<Message>) -> Result<(String, String)> {
+    if args.len() < 2 { bail!("Incomplete command for args") }
+
+    let action = unpack_string(args.get(0).unwrap())?;
+    let key = unpack_string(args.get(1).unwrap())?;
+
+    Ok((action, key))
+}
+
 pub fn get_expiry_from_args(args: &Vec<Message>) -> Option<Duration> {
     if args.len() < 4 { return None; }
 
@@ -91,6 +100,11 @@ pub fn parse_client_command(message: &Message) -> Result<Command> {
             let (num_replicas, timeout) = get_wait_args(&args)?;
 
             Ok(Command::Wait(num_replicas, timeout))
+        },
+        "config" => {
+            let (action, key) = get_config_params_from_args(&args)?;
+
+            Ok(Command::Config(action, key))
         }
         _ => Err(anyhow!(format!("Unsupported command, {}", command)))
     }

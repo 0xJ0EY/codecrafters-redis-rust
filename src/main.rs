@@ -211,6 +211,25 @@ async fn handle_client(
                     }
                 },
                 Command::Config(action, key) => {
+                    match action.to_lowercase().as_str() {
+                        "get" => {
+                            let config_value = information.config.lock().await.get_value(&key);
+
+                            if let Some(value) = config_value {
+                                let message = Message::Array(vec![
+                                    Message::BulkString(key),
+                                    Message::BulkString(value)
+                                ]);
+
+                                _ = message_stream.write(message).await;
+                            } else {
+                                _ = message_stream.write(Message::simple_string_from_str("Value not found")).await;
+                            }
+                        },
+                        _ => {
+                            _ = message_stream.write(Message::simple_string_from_str("Unsupported config action")).await;
+                        }
+                    }
 
                 }
             }
