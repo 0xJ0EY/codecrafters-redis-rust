@@ -1,14 +1,14 @@
-use crate::configuration::ServerConfiguration;
+use crate::configuration::ServerInformation;
 
-pub async fn build_replication_response(config: &ServerConfiguration) -> String {
+pub async fn build_replication_response(info: &ServerInformation) -> String {
     format!("# Replication\n\
         role:{}\n\
         connected_clients:{}\n\
         master_replid:{}\n\
         master_repl_offset:{}\n",
-        config.role,
-        config.replication_handles.lock().await.len(),
-        config.repl_id,
-        config.repl_offset
+        info.role,
+        info.replication_handles.lock().await.len(),
+        info.repl_id,
+        info.repl_offset
     )
 }

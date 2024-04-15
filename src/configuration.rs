@@ -22,18 +22,16 @@ impl fmt::Display for ReplicationRole {
 }
 
 #[derive(Debug)]
-pub struct ServerConfiguration {
+pub struct ServerInformation {
     pub role: ReplicationRole,
     pub repl_id: String,
     pub repl_offset: usize,
     
     pub socket_address: SocketAddr,
-    pub foo: usize,
-
     pub replication_handles: Mutex<Vec<ReplicaHandle>>,
 }
 
-impl ServerConfiguration {
+impl ServerInformation {
     pub fn new(args: &CommandLineArgs) -> Self {
         let role = if let Some(addr) = parse_replication_addr(args) {
             ReplicationRole::Replication(addr)
@@ -50,7 +48,6 @@ impl ServerConfiguration {
             role,
             repl_id: String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"),
             repl_offset: 0,
-            foo: 0,
             socket_address,
             replication_handles: Mutex::new(Vec::new())
         }

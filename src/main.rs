@@ -12,7 +12,7 @@ mod util;
 use anyhow::Result;
 use clap::Parser;
 use communication::{parse_client_command, MessageStream, ReplicaStream, NULL_BULK_STRING};
-use configuration::ServerConfiguration;
+use configuration::ServerInformation;
 use info::build_replication_response;
 use messages::Message;
 use replication::{replication_channel, ReplicaCommand};
@@ -46,13 +46,18 @@ struct CommandLineArgs {
 
     #[arg(value_delimiter = ' ', num_args = 2)]
     #[clap(long)]
-    replicaof: Option<Vec<String>>
+    replicaof: Option<Vec<String>>,
+
+    #[clap(long)]
+    dir: Option<String>,
+
+    #[clap(long)]
+    dbfilename: Option<String>
 }
 
 async fn handle_master(
     mut message_stream: ReplicaStream,
-    store: Arc<Mutex<Store>>,
-    _configuration: Arc<ServerConfiguration>
+    store: Arc<Mutex<Store>>
 ) {
     let mut bytes_received = 0;
 
@@ -99,7 +104,7 @@ async fn handle_master(
 async fn handle_client(
     mut message_stream: MessageStream,
     store: Arc<Mutex<Store>>,
-    configuration: Arc<ServerConfiguration>
+    information: Arc<ServerInformation>
 ) {
     let mut full_resync = false;
 
@@ -114,7 +119,7 @@ async fn handle_client(
             let (replication_handle, handle) = replication_channel(message_stream);
 
             { // Block scope is needed for RAII, due to handle.await leaving the scope *alive*
-                configuration.replication_handles.lock().await.push(replication_handle);
+                information.replication_handles.lock().await.push(replication_handle);
             }
 
             _ = handle.await;
@@ -138,7 +143,7 @@ async fn handle_client(
                 },
                 Command::Set(key, value) => {
                     store.lock().await.set(key, value);
-                    for replication in configuration.replication_handles.lock().await.iter_mut() {
+                    for replication in information.replication_handles.lock().await.iter_mut() {
                         _ = replication.tx.send(ReplicaCommand::new(message.clone())).await;
                     }
 
@@ -154,10 +159,10 @@ async fn handle_client(
                 Command::Info(section) => {
                     match section.to_ascii_lowercase().as_str() {
                         "replication" => {
-                            _ = message_stream.write(Message::bulk_string(build_replication_response(&configuration).await)).await;
+                            _ = message_stream.write(Message::bulk_string(build_replication_response(&information).await)).await;
                         },
                         "" => {
-                            _ = message_stream.write(Message::bulk_string(build_replication_response(&configuration).await)).await;
+                            _ = message_stream.write(Message::bulk_string(build_replication_response(&information).await)).await;
                         },
                         _ => {
                             _ = message_stream.write(Message::simple_string_from_str("Invalid replication")).await;
@@ -168,7 +173,7 @@ async fn handle_client(
                     _ = message_stream.write(Message::simple_string_from_str("OK")).await;
                 }
                 Command::Psync(params) => {
-                    _ = message_stream.write(Message::simple_string(format!("FULLRESYNC {} 0", &configuration.repl_id).to_string())).await;
+                    _ = message_stream.write(Message::simple_string(format!("FULLRESYNC {} 0", &information.repl_id).to_string())).await;
 
                     full_resync = true;
                 }
@@ -179,12 +184,12 @@ async fn handle_client(
                     // Otherwise, return all the replications we know about
 
                     if store.lock().await.len() == 0 {
-                        let num_replicas = configuration.replication_handles.lock().await.len();
+                        let num_replicas = information.replication_handles.lock().await.len();
                         _ = message_stream.write(Message::Integer(num_replicas as isize)).await;
                     } else {
                         let mut count = 0;
                         
-                        for replication in configuration.replication_handles.lock().await.iter_mut() {
+                        for replication in information.replication_handles.lock().await.iter_mut() {
                             let ack_message = Message::Array(vec![
                                 Message::BulkString("REPLCONF".to_string()),
                                 Message::BulkString("GETACK".to_string()),
@@ -194,7 +199,7 @@ async fn handle_client(
                             _ = replication.tx.send(ReplicaCommand::with_timeout(ack_message, Duration::from_millis(wait_time))).await;
                         }
 
-                        for replication in configuration.replication_handles.lock().await.iter_mut() {
+                        for replication in information.replication_handles.lock().await.iter_mut() {
                             let response = replication.rx.recv().await.unwrap();
 
                             if !response.expired { count += 1; }
@@ -215,26 +220,26 @@ async fn handle_client(
 async fn main() -> Result<()> {
     let args = CommandLineArgs::parse();
     let store = Arc::new(Mutex::new(Store::new()));
-    let configuration = Arc::new(ServerConfiguration::new(&args));
+    let information = Arc::new(ServerInformation::new(&args));
 
     let socket_address = {
-        if needs_to_replicate(&configuration).await {
+        if needs_to_replicate(&information).await {
             let store = store.clone();
-            let configuration = configuration.clone();
+            let information = information.clone();
 
             tokio::spawn(async move {
-                let mut replica_stream = handle_handshake_with_master(configuration.clone())
+                let mut replica_stream = handle_handshake_with_master(information)
                     .await
                     .expect("Failed the handshake with the master");
 
                 // TODO: handle rdb message
                 let _ = replica_stream.get_rdb().await;
                 
-                handle_master(replica_stream, store, configuration).await;
+                handle_master(replica_stream, store).await;
             });
         }
 
-        configuration.socket_address
+        information.socket_address
     };
 
     let listener = TcpListener::bind(socket_address).await?;
@@ -244,10 +249,10 @@ async fn main() -> Result<()> {
         let message_stream = MessageStream::bind(socket);
 
         let store = store.clone();
-        let configuration = configuration.clone();
+        let information = information.clone();
 
         tokio::spawn(async move {
-            handle_client(message_stream, store, configuration).await;
+            handle_client(message_stream, store, information).await;
         });
     }
 }

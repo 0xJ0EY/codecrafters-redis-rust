@@ -4,28 +4,28 @@ use std::{net::SocketAddr, sync::Arc, time::Duration, vec};
 use anyhow::{bail, Result};
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::mpsc::{self, Receiver, Sender}, task::JoinHandle, time::timeout};
 
-use crate::{communication::{MessageStream, ReplicaStream}, configuration::{ReplicationRole, ServerConfiguration}, messages::Message};
+use crate::{communication::{MessageStream, ReplicaStream}, configuration::{ReplicationRole, ServerInformation}, messages::Message};
 
-pub async fn needs_to_replicate(configuration: &Arc<ServerConfiguration>) -> bool {
-    let configuration = configuration;
+pub async fn needs_to_replicate(info: &Arc<ServerInformation>) -> bool {
+    let info = info;
 
-    match configuration.role {
+    match info.role {
         ReplicationRole::Master => false,
         ReplicationRole::Replication(_) => true
     }
 }
 
-fn get_master_socket_addr(configuration: &ServerConfiguration) -> Option<SocketAddr> {
-    match configuration.role {
+fn get_master_socket_addr(info: &ServerInformation) -> Option<SocketAddr> {
+    match info.role {
         ReplicationRole::Master => None,
         ReplicationRole::Replication(socket) => Some(socket)
     }
 }
 
-pub async fn handle_handshake_with_master(configuration: Arc<ServerConfiguration>) -> Result<ReplicaStream> {   
-    let configuration = configuration;
+pub async fn handle_handshake_with_master(info: Arc<ServerInformation>) -> Result<ReplicaStream> {   
+    let info = info;
 
-    let socket_addr = get_master_socket_addr(&configuration);
+    let socket_addr = get_master_socket_addr(&info);
     if socket_addr.is_none() { bail!("invalid socket address") }
 
     let socket_addr = socket_addr.unwrap();
@@ -47,7 +47,7 @@ pub async fn handle_handshake_with_master(configuration: Arc<ServerConfiguration
         let listening_port_command = Message::Array(vec![
             Message::BulkString("REPLCONF".to_string()),
             Message::BulkString("listening-port".to_string()),
-            Message::BulkString(configuration.socket_address.port().to_string())
+            Message::BulkString(info.socket_address.port().to_string())
         ]);
 
         _ = replica_stream.write(listening_port_command).await;
