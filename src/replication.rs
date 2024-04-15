@@ -1,12 +1,12 @@
 use std::{net::SocketAddr, sync::Arc, vec};
 
 use anyhow::{bail, Result};
-use tokio::{io::AsyncWriteExt, net::TcpStream, sync::{mpsc::{self, Receiver, Sender}, Mutex}, task::JoinHandle};
+use tokio::{io::AsyncWriteExt, net::TcpStream, sync::mpsc::{self, Receiver, Sender}, task::JoinHandle};
 
 use crate::{communication::ReplicaStream, configuration::{ReplicationRole, ServerConfiguration}, messages::Message};
 
-pub async fn needs_to_replicate(configuration: &Arc<Mutex<ServerConfiguration>>) -> bool {
-    let configuration = configuration.lock().await;
+pub async fn needs_to_replicate(configuration: &Arc<ServerConfiguration>) -> bool {
+    let configuration = configuration;
 
     match configuration.role {
         ReplicationRole::Master => false,
@@ -21,8 +21,8 @@ fn get_master_socket_addr(configuration: &ServerConfiguration) -> Option<SocketA
     }
 }
 
-pub async fn handle_handshake_with_master(configuration: Arc<Mutex<ServerConfiguration>>) -> Result<ReplicaStream> {   
-    let configuration = configuration.lock().await;
+pub async fn handle_handshake_with_master(configuration: Arc<ServerConfiguration>) -> Result<ReplicaStream> {   
+    let configuration = configuration;
 
     let socket_addr = get_master_socket_addr(&configuration);
     if socket_addr.is_none() { bail!("invalid socket address") }

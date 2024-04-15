@@ -24,11 +24,11 @@ impl fmt::Display for ReplicationRole {
 #[derive(Debug)]
 pub struct ServerConfiguration {
     pub role: ReplicationRole,
-    pub connect_clients: usize,
     pub repl_id: String,
     pub repl_offset: usize,
     
     pub socket_address: SocketAddr,
+    pub foo: usize,
 
     pub replication_handles: Mutex<Vec<ReplicaHandle>>,
 }
@@ -48,9 +48,9 @@ impl ServerConfiguration {
 
         Self {
             role,
-            connect_clients: 0,
             repl_id: String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"),
             repl_offset: 0,
+            foo: 0,
             socket_address,
             replication_handles: Mutex::new(Vec::new())
         }

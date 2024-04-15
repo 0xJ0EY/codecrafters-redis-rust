@@ -52,7 +52,7 @@ struct CommandLineArgs {
 async fn handle_master(
     mut message_stream: ReplicaStream,
     store: Arc<Mutex<Store>>,
-    _configuration: Arc<Mutex<ServerConfiguration>>
+    _configuration: Arc<ServerConfiguration>
 ) {
     let mut bytes_received = 0;
 
@@ -99,7 +99,7 @@ async fn handle_master(
 async fn handle_client(
     mut message_stream: MessageStream,
     store: Arc<Mutex<Store>>,
-    configuration: Arc<Mutex<ServerConfiguration>>
+    configuration: Arc<ServerConfiguration>
 ) {
     let mut full_resync = false;
 
@@ -114,8 +114,7 @@ async fn handle_client(
             let (replication_handle, handle) = replication_channel(message_stream.stream);
 
             { // Block scope is needed for RAII, due to handle.await leaving the scope *alive*
-                let config = configuration.lock().await;
-                config.replication_handles.lock().await.push(replication_handle);
+                configuration.replication_handles.lock().await.push(replication_handle);
             }
 
             _ = handle.await;
@@ -139,8 +138,7 @@ async fn handle_client(
                 },
                 Command::Set(key, value) => {
                     store.lock().await.set(key, value);
-
-                    for replication in configuration.lock().await.replication_handles.lock().await.iter_mut() {
+                    for replication in configuration.replication_handles.lock().await.iter_mut() {
                         _ = replication.tx.send(ReplicaCommand { message: message.clone() }).await;
                     }
 
@@ -156,12 +154,10 @@ async fn handle_client(
                 Command::Info(section) => {
                     match section.to_ascii_lowercase().as_str() {
                         "replication" => {
-                            let config = configuration.lock().await;
-                            _ = message_stream.write(Message::bulk_string(build_replication_response(&config))).await;
+                            _ = message_stream.write(Message::bulk_string(build_replication_response(&configuration).await)).await;
                         },
                         "" => {
-                            let config = configuration.lock().await;
-                            _ = message_stream.write(Message::bulk_string(build_replication_response(&config))).await;
+                            _ = message_stream.write(Message::bulk_string(build_replication_response(&configuration).await)).await;
                         },
                         _ => {
                             _ = message_stream.write(Message::simple_string_from_str("Invalid replication")).await;
@@ -174,13 +170,14 @@ async fn handle_client(
                 }
                 Command::Psync(params) => {
                     dbg!(params);
-                    let config = configuration.lock().await;
-                    _ = message_stream.write(Message::simple_string(format!("FULLRESYNC {} 0", &config.repl_id).to_string())).await;
+                    _ = message_stream.write(Message::simple_string(format!("FULLRESYNC {} 0", &configuration.repl_id).to_string())).await;
 
                     full_resync = true;
                 }
-                Command::Wait(replication, wait_time) => {
-                    _ = message_stream.write(Message::Integer(0)).await;
+                Command::Wait(_replication, _wait_time) => {
+                    let num_replicas = configuration.replication_handles.lock().await.len();
+
+                    _ = message_stream.write(Message::Integer(num_replicas as isize)).await;
                 }
             }
         } else {
@@ -194,18 +191,15 @@ async fn handle_client(
 async fn main() -> Result<()> {
     let args = CommandLineArgs::parse();
     let store = Arc::new(Mutex::new(Store::new()));
-
-    let configuration = Arc::new(Mutex::new(ServerConfiguration::new(&args)));
+    let configuration = Arc::new(ServerConfiguration::new(&args));
 
     let socket_address = {
         if needs_to_replicate(&configuration).await {
-            let config = configuration.clone();
-
             let store = store.clone();
             let configuration = configuration.clone();
 
             tokio::spawn(async move {
-                let mut replica_stream = handle_handshake_with_master(config)
+                let mut replica_stream = handle_handshake_with_master(configuration.clone())
                     .await
                     .expect("Failed the handshake with the master");
 
@@ -216,7 +210,7 @@ async fn main() -> Result<()> {
             });
         }
 
-        configuration.lock().await.socket_address
+        configuration.socket_address
     };
 
     let listener = TcpListener::bind(socket_address).await?;
