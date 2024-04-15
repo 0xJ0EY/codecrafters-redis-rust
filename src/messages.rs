@@ -6,7 +6,8 @@ use bytes::BytesMut;
 pub enum Message {
     SimpleString(String),
     BulkString(String),
-    Array(Vec<Message>)
+    Array(Vec<Message>),
+    Integer(isize),
 }
 
 impl Message {
@@ -23,6 +24,7 @@ impl Message {
 
                 Ok(format!("*{}\r\n{}", parts.len(), parts.join("")))
             },
+            Message::Integer(value) => Ok(format!(":{}\r\n", value)),
         }
     }
 
@@ -47,6 +49,7 @@ fn parse_message(bytes: &[u8]) -> Result<(Message, usize)> {
    match bytes[0] as char {
         '*' => parse_array(bytes),
         '+' => parse_simple_string(bytes),
+        ':' => parse_integer(bytes),
         '$' => parse_bulk_string(bytes),
         _ => { Err(anyhow!("Unsupported message type. {:?}", bytes))}
     }
@@ -78,6 +81,18 @@ fn parse_simple_string(bytes: &[u8]) -> Result<(Message, usize)> {
         let string = String::from_utf8(line.to_vec())?;
 
         return Ok((Message::SimpleString(string), len + 1));
+    }
+
+    Err(anyhow!("Invalid simple string, {:?}", bytes))
+}
+
+fn parse_integer(bytes: &[u8]) -> Result<(Message, usize)> {
+    if let Some((line, len)) = read_until_crlf(&bytes[1..]) {
+        let number = String::from_utf8(line.to_vec())?;
+
+        let value = number.parse::<isize>()?;
+
+        return Ok((Message::Integer(value), len + 1));
     }
 
     Err(anyhow!("Invalid simple string, {:?}", bytes))

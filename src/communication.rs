@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use anyhow::{anyhow, Result};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
 
-use crate::{commands::{get_expiry_from_args, get_key_value_from_args}, messages::{unpack_string, Message}, store::Entry, Command};
+use crate::{commands::{get_expiry_from_args, get_key_value_from_args, get_wait_args}, messages::{unpack_string, Message}, store::Entry, Command};
 
 pub fn parse_client_command(message: &Message) -> Result<Command> {
     let (command, args) = parse_command(message)?;
@@ -46,6 +46,11 @@ pub fn parse_client_command(message: &Message) -> Result<Command> {
                 .collect();
 
             Ok(Command::Psync(psync_args))
+        },
+        "wait" => {
+            let (num_replicas, timeout) = get_wait_args(&args)?;
+
+            Ok(Command::Wait(num_replicas, timeout))
         }
         _ => Err(anyhow!(format!("Unsupported command, {}", command)))
     }

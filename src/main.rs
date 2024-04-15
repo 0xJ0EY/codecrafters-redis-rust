@@ -30,6 +30,7 @@ enum Command {
     Info(String),
     Replconf(Vec<String>),
     Psync(Vec<String>),
+    Wait(usize, usize)
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -177,6 +178,9 @@ async fn handle_client(
                     _ = message_stream.write(Message::simple_string(format!("FULLRESYNC {} 0", &config.repl_id).to_string())).await;
 
                     full_resync = true;
+                }
+                Command::Wait(replication, wait_time) => {
+                    _ = message_stream.write(Message::Integer(0)).await;
                 }
             }
         } else {
