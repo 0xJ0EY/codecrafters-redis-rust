@@ -11,7 +11,8 @@ mod util;
 
 use anyhow::Result;
 use clap::Parser;
-use communication::{parse_client_command, MessageStream, ReplicaStream, NULL_BULK_STRING};
+use commands::parse_client_command;
+use communication::{MessageStream, ReplicaStream, NULL_BULK_STRING};
 use configuration::ServerInformation;
 use info::build_replication_response;
 use messages::Message;
@@ -30,7 +31,8 @@ enum Command {
     Info(String),
     Replconf(Vec<String>),
     Psync(Vec<String>),
-    Wait(usize, u64)
+    Wait(usize, u64),
+    Config(String, String)
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -207,6 +209,9 @@ async fn handle_client(
 
                         _ = message_stream.write(Message::Integer(count)).await;
                     }
+                },
+                Command::Config(action, key) => {
+
                 }
             }
         } else {
@@ -221,6 +226,10 @@ async fn main() -> Result<()> {
     let args = CommandLineArgs::parse();
     let store = Arc::new(Mutex::new(Store::new()));
     let information = Arc::new(ServerInformation::new(&args));
+
+    // Load config values from param
+    if let Some(dir) = args.dir { information.config.lock().await.dir = Some(dir); }
+    if let Some(dbfilename) = args.dbfilename { information.config.lock().await.dbfilename = Some(dbfilename); }
 
     let socket_address = {
         if needs_to_replicate(&information).await {

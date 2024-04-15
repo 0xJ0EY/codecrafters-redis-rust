@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use crate::messages::{unpack_string, Message};
-use anyhow::{bail, Ok, Result};
+use crate::{messages::{unpack_string, Message}, store::Entry, Command};
+use anyhow::{anyhow, bail, Ok, Result};
 
 pub fn get_key_value_from_args(args: &Vec<Message>) -> Result<(String, String)> {
     if args.len() < 2 { bail!("Incomplete command for set") }
@@ -42,4 +42,68 @@ pub fn get_wait_args(args: &Vec<Message>) -> Result<(usize, u64)> {
         .parse::<u64>()?;
 
     Ok((num_replicas, timeout))
+}
+
+
+pub fn parse_client_command(message: &Message) -> Result<Command> {
+    let (command, args) = parse_command(message)?;
+    let command = command.to_lowercase();
+
+    match command.as_str() {
+        "ping" => { Ok(Command::Ping) },
+        "echo" => { Ok(Command::Echo(unpack_string(args.first().unwrap())?)) },
+        "set" => {
+            let (key, value) = get_key_value_from_args(&args)?;
+            let expiry = get_expiry_from_args(&args);
+
+            let entry = Entry::new(value, expiry);
+
+            Ok(Command::Set(key, entry))
+        },
+        "get" => {
+            let key: String = unpack_string(args.first().unwrap())?;
+            Ok(Command::Get(key))
+        }
+        "info" => {
+            let section = if !args.is_empty() {
+                unpack_string(args.first().unwrap())?
+            } else {
+                String::new()
+            };
+
+            Ok(Command::Info(section))
+        },
+        "replconf" => {
+            let repl_args: Vec<_> = args.iter()
+                .map(|x| unpack_string(x).unwrap())
+                .collect();
+
+            Ok(Command::Replconf(repl_args))
+        },
+        "psync" => {
+            let psync_args: Vec<_> = args.iter()
+                .map(|x| unpack_string(x).unwrap())
+                .collect();
+
+            Ok(Command::Psync(psync_args))
+        },
+        "wait" => {
+            let (num_replicas, timeout) = get_wait_args(&args)?;
+
+            Ok(Command::Wait(num_replicas, timeout))
+        }
+        _ => Err(anyhow!(format!("Unsupported command, {}", command)))
+    }
+}
+
+fn parse_command(message: &Message) -> Result<(String, Vec<Message>)> {
+    match message {
+        Message::Array(x) => { 
+            let command = unpack_string(x.first().unwrap())?;
+            let args = x.clone().into_iter().skip(1).collect();
+
+            Ok((command, args))
+        },
+        _ => Err(anyhow!("Unexpected command format"))
+    }
 }

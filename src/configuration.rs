@@ -22,10 +22,27 @@ impl fmt::Display for ReplicationRole {
 }
 
 #[derive(Debug)]
+pub struct ServerConfiguration {
+    pub dir: Option<String>,
+    pub dbfilename: Option<String>
+}
+
+impl ServerConfiguration {
+    pub fn new() -> Self {
+        ServerConfiguration {
+            dir: None,
+            dbfilename: None
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct ServerInformation {
     pub role: ReplicationRole,
     pub repl_id: String,
     pub repl_offset: usize,
+
+    pub config: Mutex<ServerConfiguration>,
     
     pub socket_address: SocketAddr,
     pub replication_handles: Mutex<Vec<ReplicaHandle>>,
@@ -48,6 +65,7 @@ impl ServerInformation {
             role,
             repl_id: String::from("8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"),
             repl_offset: 0,
+            config: Mutex::new(ServerConfiguration::new()),
             socket_address,
             replication_handles: Mutex::new(Vec::new())
         }
