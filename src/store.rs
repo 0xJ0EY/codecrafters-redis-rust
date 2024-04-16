@@ -160,12 +160,7 @@ fn read_resizedb_field(data: &Vec<u8>, marker: &mut usize) -> bool {
     true
 }
 
-fn read_value(store: &mut Store, data: &Vec<u8>, marker: &mut usize) {
-    let value_type = data[*marker];
-    *marker += 1;
-
-    if value_type != 0 { todo!("implement the other key types") }
-
+fn read_length_prefixed_string(data: &Vec<u8>, marker: &mut usize) -> Option<String> {
     let length = data[*marker] as usize;
     *marker += 1;
 
@@ -173,10 +168,22 @@ fn read_value(store: &mut Store, data: &Vec<u8>, marker: &mut usize) {
     let end = start + length;
 
     let slice: &[u8] = &data[start..end];
+    let value = std::str::from_utf8(slice).unwrap().to_string();
+    *marker += length;
 
-    let key = std::str::from_utf8(slice).unwrap().to_string();
+    Some(value)
+}
 
-    store.set(key, Entry::new("123".to_string(), None));
+fn read_value(store: &mut Store, data: &Vec<u8>, marker: &mut usize) {
+    let value_type = data[*marker];
+    *marker += 1;
+
+    if value_type != 0 { todo!("implement the other key types") }
+
+    let key = read_length_prefixed_string(data, marker).unwrap();
+    let value = read_length_prefixed_string(data, marker).unwrap();
+
+    store.set(key, Entry::new(value, None));
 }
 
 fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
