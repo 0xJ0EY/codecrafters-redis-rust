@@ -1,5 +1,5 @@
 use core::panic;
-use std::{collections::HashMap, env, path::Path, sync::Arc, time::{Duration, SystemTime}};
+use std::{collections::HashMap, env, path::Path, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use tokio::{fs::{metadata, File}, io::AsyncReadExt};
 use anyhow::{bail, Result};
@@ -186,23 +186,64 @@ fn read_length_prefixed_string(data: &Vec<u8>, marker: &mut usize) -> Option<Str
     Some(value)
 }
 
-fn read_entry(data: &Vec<u8>, marker: &mut usize) -> Result<(String, Entry)> {
-    let mut offset = *marker;
 
-    let value_type = data[offset]; offset += 1;
-    if value_type != 0x00 { bail!("Unsupported value"); }
-
-    let key = if let Some(key) = read_length_prefixed_string(data, &mut offset) { key } else {
+fn read_normal_string_value(data: &Vec<u8>, marker: &mut usize) -> Result<(String, String)> {
+    let key = if let Some(key) = read_length_prefixed_string(data, marker) { key } else {
         bail!("Unable to read key from the entry");
     };
 
-    let value = if let Some(value) = read_length_prefixed_string(data, &mut offset) { value } else {
+    let value = if let Some(value) = read_length_prefixed_string(data, marker) { value } else {
         bail!("Unable to read value from the entry");
     };
 
-    *marker = offset;
+    Ok((key, value))
+}
 
-    Ok((key, Entry::new(value, None)))
+fn read_entry(data: &Vec<u8>, marker: &mut usize) -> Result<(String, Entry)> {
+    let mut offset = *marker;
+
+    match data[offset] {
+        0xFC => {
+            offset += 1; // Skip the tag
+
+            let expiry_time = u64::from_le_bytes([
+                data[offset + 0],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]);
+
+            offset += 8;
+
+            let value_type = data[offset]; offset += 1;
+            if value_type != 0x00 { bail!("Unsupported value"); }
+
+            let (key, value) = read_normal_string_value(data, &mut offset)?;
+
+            let expiry = UNIX_EPOCH + Duration::from_millis(expiry_time);
+            let current = SystemTime::now();
+
+            let duration = expiry.duration_since(current).unwrap_or_else(|_| Duration::from_secs(0));
+
+            *marker = offset;
+
+            Ok((key, Entry::new(value, Some(duration))))
+        }
+        _ => {
+            let value_type = data[offset]; offset += 1;
+            if value_type != 0x00 { bail!("Unsupported value"); }
+
+            let (key, value) = read_normal_string_value(data, &mut offset)?;
+
+            *marker = offset;
+
+            Ok((key, Entry::new(value, None)))
+        }
+    }
 }
 
 fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
@@ -212,10 +253,15 @@ fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
     if !find_database_selector(data, 0x00, &mut marker) { return; }
     if !read_resizedb_field(data, &mut marker) { return; }
 
+    dbg!("importing");
+
     while data[marker] != 0xFF {
         let result = read_entry(data, &mut marker);
 
+        dbg!(&result);
+
         if let Ok((key, entry)) = result {
+            println!("loaded {}", &key);
             store.set(key, entry);
         }
     }
