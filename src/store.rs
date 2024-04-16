@@ -2,6 +2,7 @@ use core::panic;
 use std::{collections::HashMap, env, path::Path, sync::Arc, time::{Duration, SystemTime}};
 
 use tokio::{fs::{metadata, File}, io::AsyncReadExt};
+use anyhow::{bail, Result};
 
 use crate::{configuration::ServerInformation, util::decode_hex};
 
@@ -123,13 +124,25 @@ fn find_database_selector(data: &Vec<u8>, database: u8, marker: &mut usize) -> b
 
 fn read_length_encoded_int(data: &Vec<u8>, marker: &mut usize) -> Option<u64> {
     let original = data[*marker];
-    let tag = original & 0x03;
+    let tag = original >> 6 & 0x03;
 
     *marker += 1;
 
     match tag {
         0b11 => { todo!("String encoding"); }
-        0b10 => { todo!("Discard the remaining 6 bits. The next 4 bytes from the stream represent the length"); }
+        0b10 => { 
+            // TODO: Implement this
+            let octet1 = data[*marker]; *marker += 1;
+            let octet2 = data[*marker]; *marker += 1;
+
+            let length = u16::from_le_bytes([octet1, octet2]) as u64;
+
+            if length == 0 {
+                Some(0)
+            } else {
+                todo!("implement more parsing")
+            }
+         }
         0b01 => { 
             let octet1 = original & 0xFC;
             let octet2 = data[*marker];
@@ -138,7 +151,7 @@ fn read_length_encoded_int(data: &Vec<u8>, marker: &mut usize) -> Option<u64> {
             Some(u16::from_le_bytes([octet1, octet2]) as u64)
          }
         0b00 => { 
-            let length = u8::from_le(original & 0xFC);
+            let length = u8::from_le(original & 0x3F);
 
             if length == 0 { return Some(0); }
 
@@ -152,38 +165,44 @@ fn read_resizedb_field(data: &Vec<u8>, marker: &mut usize) -> bool {
     if data[*marker] != 0xFB { return false; }
     *marker += 1;
 
-    let hash_table_length = read_length_encoded_int(data, marker);
-    // let expire_hash_table_length = read_length_encoded_int(data, marker);
-
-    // dbg!(hash_table_length);
+    // TODO: I don't know how to really parse the length of the hash table, so we hardcode it for now
+    *marker += 1; // Skip the 0 - 1 - 2
+    *marker += 1; // Skip the 0
 
     true
 }
 
 fn read_length_prefixed_string(data: &Vec<u8>, marker: &mut usize) -> Option<String> {
-    let length = data[*marker] as usize;
-    *marker += 1;
+    let length = data[*marker] as usize; *marker += 1;
 
     let start = *marker;
     let end = start + length;
 
     let slice: &[u8] = &data[start..end];
     let value = std::str::from_utf8(slice).unwrap().to_string();
-    *marker += length;
+    
+    *marker = end;
 
     Some(value)
 }
 
-fn read_value(store: &mut Store, data: &Vec<u8>, marker: &mut usize) {
-    let value_type = data[*marker];
-    *marker += 1;
+fn read_entry(data: &Vec<u8>, marker: &mut usize) -> Result<(String, Entry)> {
+    let mut offset = *marker;
 
-    if value_type != 0 { todo!("implement the other key types") }
+    let value_type = data[offset]; offset += 1;
+    if value_type != 0x00 { bail!("Unsupported value"); }
 
-    let key = read_length_prefixed_string(data, marker).unwrap();
-    let value = read_length_prefixed_string(data, marker).unwrap();
+    let key = if let Some(key) = read_length_prefixed_string(data, &mut offset) { key } else {
+        bail!("Unable to read key from the entry");
+    };
 
-    store.set(key, Entry::new(value, None));
+    let value = if let Some(value) = read_length_prefixed_string(data, &mut offset) { value } else {
+        bail!("Unable to read value from the entry");
+    };
+
+    *marker = offset;
+
+    Ok((key, Entry::new(value, None)))
 }
 
 fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
@@ -193,8 +212,11 @@ fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
     if !find_database_selector(data, 0x00, &mut marker) { return; }
     if !read_resizedb_field(data, &mut marker) { return; }
 
-    read_value(store, data, &mut marker);
+    while data[marker] != 0xFF {
+        let result = read_entry(data, &mut marker);
 
-    dbg!(marker);
-    println!("{:2x}", data[marker]);
+        if let Ok((key, entry)) = result {
+            store.set(key, entry);
+        }
+    }
 }
