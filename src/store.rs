@@ -253,12 +253,8 @@ fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
     if !find_database_selector(data, 0x00, &mut marker) { return; }
     if !read_resizedb_field(data, &mut marker) { return; }
 
-    dbg!("importing");
-
     while data[marker] != 0xFF {
         let result = read_entry(data, &mut marker);
-
-        dbg!(&result);
 
         if let Ok((key, entry)) = result {
             println!("loaded {}", &key);
