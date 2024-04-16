@@ -1,3 +1,4 @@
+use core::panic;
 use std::{collections::HashMap, env, path::Path, sync::Arc, time::{Duration, SystemTime}};
 
 use tokio::{fs::{metadata, File}, io::AsyncReadExt};
@@ -36,6 +37,10 @@ pub struct Store {
 impl Store {
     pub fn new() -> Self {
         Self { data: HashMap::new() }
+    }
+
+    pub fn keys(&self) -> Vec<String> {
+        self.data.keys().cloned().collect()
     }
 
     pub fn set(&mut self, key: String, value: Entry) {
@@ -103,12 +108,86 @@ fn parse_magic_number(data: &Vec<u8>, marker: &mut usize) -> bool {
     magic_number == &data[0..magic_number.len()]
 }
 
+fn find_database_selector(data: &Vec<u8>, database: u8, marker: &mut usize) -> bool {
+    let start = *marker + 1;
+
+    for i in start..data.len() {
+        if data[i - 1] == 0xFE && data[i] == database {
+            *marker = i + 1;
+            return true;
+        }
+    }
+
+    false
+}
+
+fn read_length_encoded_int(data: &Vec<u8>, marker: &mut usize) -> Option<u64> {
+    let original = data[*marker];
+    let tag = original & 0x03;
+
+    *marker += 1;
+
+    match tag {
+        0b11 => { todo!("String encoding"); }
+        0b10 => { todo!("Discard the remaining 6 bits. The next 4 bytes from the stream represent the length"); }
+        0b01 => { 
+            let octet1 = original & 0xFC;
+            let octet2 = data[*marker];
+            *marker += 1;
+
+            Some(u16::from_le_bytes([octet1, octet2]) as u64)
+         }
+        0b00 => { 
+            let length = u8::from_le(original & 0xFC);
+
+            if length == 0 { return Some(0); }
+
+            todo!("Implement the rest of the next 6 bits represent the length");
+        },
+        _ => { panic!("Unreachable statement"); }
+    }
+}
+
+fn read_resizedb_field(data: &Vec<u8>, marker: &mut usize) -> bool {
+    if data[*marker] != 0xFB { return false; }
+    *marker += 1;
+
+    let hash_table_length = read_length_encoded_int(data, marker);
+    // let expire_hash_table_length = read_length_encoded_int(data, marker);
+
+    // dbg!(hash_table_length);
+
+    true
+}
+
+fn read_value(store: &mut Store, data: &Vec<u8>, marker: &mut usize) {
+    let value_type = data[*marker];
+    *marker += 1;
+
+    if value_type != 0 { todo!("implement the other key types") }
+
+    let length = data[*marker] as usize;
+    *marker += 1;
+
+    let start = *marker;
+    let end = start + length;
+
+    let slice: &[u8] = &data[start..end];
+
+    let key = std::str::from_utf8(slice).unwrap().to_string();
+
+    store.set(key, Entry::new("123".to_string(), None));
+}
+
 fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
     let mut marker = 0;
 
     if !parse_magic_number(data, &mut marker) { return; }
-    
+    if !find_database_selector(data, 0x00, &mut marker) { return; }
+    if !read_resizedb_field(data, &mut marker) { return; }
 
+    read_value(store, data, &mut marker);
 
     dbg!(marker);
+    println!("{:2x}", data[marker]);
 }

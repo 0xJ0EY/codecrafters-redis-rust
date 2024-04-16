@@ -105,6 +105,15 @@ pub fn parse_client_command(message: &Message) -> Result<Command> {
             let (action, key) = get_config_params_from_args(&args)?;
 
             Ok(Command::Config(action, key))
+        },
+        "keys" => {
+            let pattern = if !args.is_empty() {
+                unpack_string(args.first().unwrap())?
+            } else {
+                String::new()
+            };
+
+            Ok(Command::Keys(pattern))
         }
         _ => Err(anyhow!(format!("Unsupported command, {}", command)))
     }

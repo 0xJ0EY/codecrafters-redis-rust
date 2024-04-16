@@ -32,7 +32,8 @@ enum Command {
     Replconf(Vec<String>),
     Psync(Vec<String>),
     Wait(usize, u64),
-    Config(String, String)
+    Config(String, String),
+    Keys(String)
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -231,6 +232,18 @@ async fn handle_client(
                         }
                     }
 
+                },
+                Command::Keys(pattern) => {
+                    if pattern == "*" {
+                        let keys = store.lock().await.keys();
+                        let keys = keys.into_iter().map(|x| Message::BulkString(x)).collect::<Vec<_>>();
+
+                        let message = Message::Array(keys);
+
+                        _ = message_stream.write(message).await;
+                    } else {
+                        _ = message_stream.write(Message::simple_string_from_str("Unsupported keys pattern")).await;
+                    }
                 }
             }
         } else {
