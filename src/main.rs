@@ -17,12 +17,19 @@ use configuration::ServerInformation;
 use info::build_replication_response;
 use messages::Message;
 use replication::{replication_channel, ReplicaCommand};
-use store::{full_resync_rdb, read_rdb_from_file, Entry, EntryValue, Store};
+use store::{full_resync_rdb, read_rdb_from_file, Entry, EntryValue, Store, StreamData};
 use tokio::{net::TcpListener, sync::Mutex};
 
 use crate::replication::{handle_handshake_with_master, needs_to_replicate};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+pub struct XADDParams {
+    pub key: String,
+    pub id: String,
+    pub values: StreamData,
+}
+
+#[derive(Debug)]
 enum Command {
     Echo(String),
     Ping,
@@ -35,6 +42,7 @@ enum Command {
     Config(String, String),
     Keys(String),
     Type(String),
+    XADD(XADDParams),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -167,7 +175,7 @@ async fn handle_client(
                         .await;
                 }
                 Command::Get(key) => {
-                    if let Some(entry) = store.lock().await.get_kv_value(key) {
+                    if let Some(entry) = store.lock().await.get_kv_value(&key) {
                         _ = message_stream
                             .write(Message::bulk_string(entry.value.clone()))
                             .await;
@@ -300,7 +308,7 @@ async fn handle_client(
                     }
 
                     let store = store.lock().await;
-                    let value = store.get_value(key);
+                    let value = store.get_value(&key);
 
                     let value_type = if let Some(x) = value {
                         x.value_type()
@@ -309,6 +317,13 @@ async fn handle_client(
                     };
 
                     _ = send_simple_str(&mut message_stream, value_type.as_str()).await;
+                }
+                Command::XADD(params) => {
+                    let mut store = store.lock().await;
+
+                    _ = store.set_stream_value(&params.key, &params.id, params.values);
+
+                    _ = send_bulk_string(&mut message_stream, params.id).await
                 }
             }
         } else {
@@ -322,6 +337,10 @@ async fn send_simple_str(message_stream: &mut MessageStream, message: &str) -> R
     message_stream
         .write(Message::simple_string_from_str(message))
         .await
+}
+
+async fn send_bulk_string(message_stream: &mut MessageStream, message: String) -> Result<()> {
+    message_stream.write(Message::bulk_string(message)).await
 }
 
 #[tokio::main]

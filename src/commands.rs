@@ -1,9 +1,9 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use crate::{
     messages::{unpack_string, Message},
-    store::Entry,
-    Command,
+    store::{Entry, StreamData},
+    Command, XADDParams,
 };
 use anyhow::{anyhow, bail, Ok, Result};
 
@@ -16,6 +16,31 @@ pub fn get_key_value_from_args(args: &Vec<Message>) -> Result<(String, String)> 
     let value = unpack_string(args.get(1).unwrap())?;
 
     Ok((key, value))
+}
+
+pub fn get_string_from_args(args: &Vec<Message>, n: usize) -> Result<String> {
+    if args.len() < n {
+        bail!("Args is too small to have nth arg");
+    }
+
+    Ok(unpack_string(args.get(n).unwrap())?)
+}
+
+pub fn get_stream_data(messages: &[Message]) -> Result<StreamData> {
+    if messages.len() % 2 != 0 {
+        bail!("Messages need to be in pairs of 2");
+    }
+
+    let mut map = HashMap::new();
+
+    for i in (0..messages.len()).step_by(2) {
+        let key = unpack_string(&messages[i + 0]).unwrap();
+        let val = unpack_string(&messages[i + 1]).unwrap();
+
+        map.insert(key, val);
+    }
+
+    Ok(StreamData { data: map })
 }
 
 pub fn get_config_params_from_args(args: &Vec<Message>) -> Result<(String, String)> {
@@ -128,6 +153,17 @@ pub fn parse_client_command(message: &Message) -> Result<Command> {
             };
 
             Ok(Command::Type(key))
+        }
+        "xadd" => {
+            let key = get_string_from_args(&args, 0)?;
+            let id = get_string_from_args(&args, 1)?;
+            let data = get_stream_data(&args[2..])?;
+
+            Ok(Command::XADD(XADDParams {
+                key,
+                id,
+                values: data,
+            }))
         }
         _ => Err(anyhow!(format!("Unsupported command, {}", command))),
     }

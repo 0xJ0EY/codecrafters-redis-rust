@@ -50,16 +50,36 @@ impl EntryValue for Entry {
 }
 
 #[derive(Debug)]
+pub struct StreamData {
+    pub data: HashMap<String, String>,
+}
+
+// stream_key   | 1526919030474-0   | temperature 36 humidity 95
+// store key    | id                | stream data
+#[derive(Debug)]
+pub struct Stream {
+    pub entries: Vec<(String, StreamData)>,
+}
+
+impl Stream {
+    pub fn empty() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum StoreItem {
     KeyValueEntry(Entry),
-    Stream(),
+    Stream(Stream),
 }
 
 impl EntryValue for StoreItem {
     fn value_type(&self) -> String {
         match self {
             Self::KeyValueEntry(x) => x.value_type(),
-            Self::Stream() => "stream".to_string(),
+            Self::Stream(_) => "stream".to_string(),
         }
     }
 }
@@ -85,8 +105,29 @@ impl Store {
         self.data.insert(key, entry);
     }
 
-    pub fn get_kv_value(&self, key: String) -> Option<&Entry> {
-        let store_entry = self.data.get(&key)?;
+    pub fn set_stream_value(
+        &mut self,
+        key: &String,
+        id: &String,
+        stream_data: StreamData,
+    ) -> Result<()> {
+        let stream = if let Some(stream) = self.get_mut_stream(key) {
+            stream
+        } else {
+            // Create new stream
+            self.data
+                .insert(key.clone(), StoreItem::Stream(Stream::empty()));
+
+            self.get_mut_stream(key).unwrap()
+        };
+
+        stream.entries.push((id.clone(), stream_data));
+
+        Ok(())
+    }
+
+    pub fn get_kv_value(&self, key: &String) -> Option<&Entry> {
+        let store_entry = self.data.get(key)?;
 
         let key_val_entry = if let StoreItem::KeyValueEntry(key_val_entry) = store_entry {
             key_val_entry
@@ -103,8 +144,18 @@ impl Store {
         Some(key_val_entry)
     }
 
-    pub fn get_value(&self, key: String) -> Option<&StoreItem> {
-        self.data.get(&key)
+    pub fn get_value(&self, key: &String) -> Option<&StoreItem> {
+        self.data.get(key)
+    }
+
+    pub fn get_mut_stream(&mut self, key: &String) -> Option<&mut Stream> {
+        let store_entry = self.data.get_mut(key)?;
+
+        if let StoreItem::Stream(stream) = store_entry {
+            Some(stream)
+        } else {
+            None
+        }
     }
 
     pub fn len(&self) -> usize {
