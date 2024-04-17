@@ -14,6 +14,10 @@ use tokio::{
 
 use crate::{configuration::ServerInformation, util::decode_hex};
 
+pub trait EntryValue {
+    fn value_type(&self) -> String;
+}
+
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub value: String,
@@ -39,10 +43,25 @@ impl Entry {
     }
 }
 
+impl EntryValue for Entry {
+    fn value_type(&self) -> String {
+        "string".to_string()
+    }
+}
+
 #[derive(Debug)]
 pub enum StoreItem {
     KeyValueEntry(Entry),
     Stream(),
+}
+
+impl EntryValue for StoreItem {
+    fn value_type(&self) -> String {
+        match self {
+            Self::KeyValueEntry(x) => x.value_type(),
+            Self::Stream() => "stream".to_string(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -82,6 +101,10 @@ impl Store {
         }
 
         Some(key_val_entry)
+    }
+
+    pub fn get_value(&self, key: String) -> Option<&StoreItem> {
+        self.data.get(&key)
     }
 
     pub fn len(&self) -> usize {

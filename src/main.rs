@@ -17,7 +17,7 @@ use configuration::ServerInformation;
 use info::build_replication_response;
 use messages::Message;
 use replication::{replication_channel, ReplicaCommand};
-use store::{full_resync_rdb, read_rdb_from_file, Entry, Store};
+use store::{full_resync_rdb, read_rdb_from_file, Entry, EntryValue, Store};
 use tokio::{net::TcpListener, sync::Mutex};
 
 use crate::replication::{handle_handshake_with_master, needs_to_replicate};
@@ -34,6 +34,7 @@ enum Command {
     Wait(usize, u64),
     Config(String, String),
     Keys(String),
+    Type(String),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -290,14 +291,37 @@ async fn handle_client(
                             .await;
                     }
                 }
+                Command::Type(key) => {
+                    if key.len() == 0 {
+                        _ = send_simple_str(&mut message_stream, "Need a key to fetch the type")
+                            .await;
+
+                        continue;
+                    }
+
+                    let store = store.lock().await;
+                    let value = store.get_value(key);
+
+                    let value_type = if let Some(x) = value {
+                        x.value_type()
+                    } else {
+                        String::from("none")
+                    };
+
+                    _ = send_simple_str(&mut message_stream, value_type.as_str()).await;
+                }
             }
         } else {
-            _ = message_stream
-                .write(Message::simple_string_from_str("Invalid message"))
-                .await;
+            _ = send_simple_str(&mut message_stream, "Need a key to fetch the type").await;
             break;
         }
     }
+}
+
+async fn send_simple_str(message_stream: &mut MessageStream, message: &str) -> Result<()> {
+    message_stream
+        .write(Message::simple_string_from_str(message))
+        .await
 }
 
 #[tokio::main]
