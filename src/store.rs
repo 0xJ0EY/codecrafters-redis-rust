@@ -39,9 +39,15 @@ impl Entry {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+pub enum StoreItem {
+    KeyValueEntry(Entry),
+    Stream(),
+}
+
+#[derive(Debug)]
 pub struct Store {
-    data: HashMap<String, Entry>,
+    data: HashMap<String, StoreItem>,
 }
 
 impl Store {
@@ -55,23 +61,27 @@ impl Store {
         self.data.keys().cloned().collect()
     }
 
-    pub fn set(&mut self, key: String, value: Entry) {
-        self.data.insert(key, value);
+    pub fn set_kv_value(&mut self, key: String, value: Entry) {
+        let entry = StoreItem::KeyValueEntry(value);
+        self.data.insert(key, entry);
     }
 
-    pub fn get(&self, key: String) -> Option<&Entry> {
-        let entry = self.data.get(&key);
-        entry?;
+    pub fn get_kv_value(&self, key: String) -> Option<&Entry> {
+        let store_entry = self.data.get(&key)?;
 
-        let entry = entry.unwrap();
+        let key_val_entry = if let StoreItem::KeyValueEntry(key_val_entry) = store_entry {
+            key_val_entry
+        } else {
+            return None;
+        };
 
-        if let Some(expiry_date_time) = entry.expiry_at {
+        if let Some(expiry_date_time) = key_val_entry.expiry_at {
             if SystemTime::now() > expiry_date_time {
                 return None;
             }
         }
 
-        Some(entry)
+        Some(key_val_entry)
     }
 
     pub fn len(&self) -> usize {
@@ -272,7 +282,7 @@ fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
 
         if let Ok((key, entry)) = result {
             println!("loaded {}", &key);
-            store.set(key, entry);
+            store.set_kv_value(key, entry);
         }
     }
 }
