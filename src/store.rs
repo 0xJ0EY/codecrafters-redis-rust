@@ -429,17 +429,26 @@ fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
 }
 
 fn build_stream_id(pattern: &String, last_stream_entry: Option<&String>) -> Option<String> {
+    let pattern = if pattern.len() < 3 { "*-*" } else { pattern };
+
     let (cur_id_ms, cur_id_seq) = pattern.split_once('-').unwrap();
 
     let mut id_ms: String = cur_id_ms.to_string();
     let mut id_seq: String = cur_id_seq.to_string();
 
-    let auto_generate_seq = cur_id_seq == "*";
+    let auto_generate_ms = cur_id_ms == "*";
+
+    if auto_generate_ms {
+        let now = SystemTime::now();
+        let time_since_unix_time = now.duration_since(UNIX_EPOCH).unwrap();
+
+        id_ms = time_since_unix_time.as_millis().to_string();
+    }
 
     let relevant_stream_entry = if let Some(last_id) = last_stream_entry {
         let (last_id_ms, _) = last_id.split_once('-').unwrap();
 
-        if last_id_ms == cur_id_ms {
+        if last_id_ms == id_ms {
             Some(last_id)
         } else {
             None
@@ -448,7 +457,8 @@ fn build_stream_id(pattern: &String, last_stream_entry: Option<&String>) -> Opti
         None
     };
 
-    // When we don't have a stream last entry
+    let auto_generate_seq = cur_id_seq == "*";
+
     if let Some(last_id) = relevant_stream_entry {
         let (last_id_ms, last_id_seq) = last_id.split_once('-').unwrap();
 
