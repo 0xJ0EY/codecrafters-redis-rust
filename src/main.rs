@@ -321,14 +321,18 @@ async fn handle_client(
                 Command::XADD(params) => {
                     let mut store = store.lock().await;
 
-                    if let Err(err) = store.validate_stream_id(&params.key, &params.id) {
+                    let id = store
+                        .auto_generate_stream_id(&params.key, &params.id)
+                        .unwrap();
+
+                    if let Err(err) = store.validate_stream_id(&params.key, &id) {
                         _ = send_error_string(&mut message_stream, err.to_string()).await;
                         continue;
                     }
 
-                    _ = store.append_stream_value(&params.key, &params.id, params.values);
+                    _ = store.append_stream_value(&params.key, &id, params.values);
 
-                    _ = send_bulk_string(&mut message_stream, params.id).await
+                    _ = send_bulk_string(&mut message_stream, id).await
                 }
             }
         } else {

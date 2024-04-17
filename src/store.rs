@@ -1,6 +1,8 @@
 use std::{
+    alloc::LayoutError,
     collections::HashMap,
     env,
+    fmt::format,
     path::Path,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -103,6 +105,20 @@ impl Store {
     pub fn set_kv_value(&mut self, key: String, value: Entry) {
         let entry = StoreItem::KeyValueEntry(value);
         self.data.insert(key, entry);
+    }
+
+    pub fn auto_generate_stream_id(&self, key: &String, id_pattern: &String) -> Option<String> {
+        if let Some(stream) = self.get_stream(key) {
+            let last_entry = if let Some((last_entry, _)) = stream.entries.last() {
+                Some(last_entry)
+            } else {
+                None
+            };
+
+            build_stream_id(id_pattern, last_entry)
+        } else {
+            build_stream_id(id_pattern, None)
+        }
     }
 
     pub fn validate_stream_id(&self, key: &String, id: &String) -> Result<()> {
@@ -410,4 +426,45 @@ fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
             store.set_kv_value(key, entry);
         }
     }
+}
+
+fn build_stream_id(pattern: &String, last_stream_entry: Option<&String>) -> Option<String> {
+    let (cur_id_ms, cur_id_seq) = pattern.split_once('-').unwrap();
+
+    let mut id_ms: String = cur_id_ms.to_string();
+    let mut id_seq: String = cur_id_seq.to_string();
+
+    let auto_generate_seq = cur_id_seq == "*";
+
+    let relevant_stream_entry = if let Some(last_id) = last_stream_entry {
+        let (last_id_ms, _) = last_id.split_once('-').unwrap();
+
+        if last_id_ms == cur_id_ms {
+            Some(last_id)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // When we don't have a stream last entry
+    if let Some(last_id) = relevant_stream_entry {
+        let (last_id_ms, last_id_seq) = last_id.split_once('-').unwrap();
+
+        if auto_generate_seq {
+            let next_seq = last_id_seq.parse::<u64>().unwrap() + 1;
+            id_seq = next_seq.to_string();
+        }
+    } else {
+        if auto_generate_seq {
+            id_seq = if id_ms == "0" {
+                "1".to_string()
+            } else {
+                "0".to_string()
+            }
+        }
+    }
+
+    Some(format!("{}-{}", id_ms, id_seq))
 }
