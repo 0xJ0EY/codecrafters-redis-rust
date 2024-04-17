@@ -1,9 +1,10 @@
-use std::vec;
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
+use std::{fmt::format, vec};
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Error(String),
     SimpleString(String),
     BulkString(String),
     Array(Vec<Message>),
@@ -13,6 +14,7 @@ pub enum Message {
 impl Message {
     pub fn serialize(&self) -> Result<String> {
         match self {
+            Message::Error(s) => Ok(format!("-{}\r\n", s)),
             Message::SimpleString(s) => Ok(format!("+{}\r\n", s)),
             Message::BulkString(s) => Ok(format!("${}\r\n{}\r\n", s.chars().count(), s)),
             Message::Array(items) => {
@@ -23,7 +25,7 @@ impl Message {
                 }
 
                 Ok(format!("*{}\r\n{}", parts.len(), parts.join("")))
-            },
+            }
             Message::Integer(value) => Ok(format!(":{}\r\n", value)),
         }
     }
@@ -46,17 +48,18 @@ impl Message {
 }
 
 fn parse_message(bytes: &[u8]) -> Result<(Message, usize)> {
-   match bytes[0] as char {
+    match bytes[0] as char {
         '*' => parse_array(bytes),
         '+' => parse_simple_string(bytes),
         ':' => parse_integer(bytes),
         '$' => parse_bulk_string(bytes),
-        _ => { Err(anyhow!("Unsupported message type. {:?}", bytes))}
+        _ => Err(anyhow!("Unsupported message type. {:?}", bytes)),
     }
 }
 
 fn parse_array(bytes: &[u8]) -> Result<(Message, usize)> {
-    let (array_items, mut bytes_consumed) = if let Some((line, len)) = read_until_crlf(&bytes[1..]) {
+    let (array_items, mut bytes_consumed) = if let Some((line, len)) = read_until_crlf(&bytes[1..])
+    {
         let array_items = parse_int(line).unwrap();
 
         (array_items, len + 1)
@@ -133,6 +136,6 @@ pub fn unpack_string(message: &Message) -> Result<String> {
     match message {
         Message::SimpleString(s) => Ok(s.clone()),
         Message::BulkString(s) => Ok(s.clone()),
-        _ => Err(anyhow!("Unexpected value to unpack from message"))
+        _ => Err(anyhow!("Unexpected value to unpack from message")),
     }
 }

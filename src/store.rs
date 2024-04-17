@@ -105,7 +105,48 @@ impl Store {
         self.data.insert(key, entry);
     }
 
-    pub fn set_stream_value(
+    pub fn validate_stream_id(&self, key: &String, id: &String) -> Result<()> {
+        let stream = if let Some(stream) = self.get_stream(key) {
+            stream
+        } else {
+            return Ok(());
+        };
+
+        if stream.entries.len() == 0 {
+            return Ok(());
+        }
+
+        let (last_id, _) = stream.entries.last().unwrap();
+
+        let (last_id_ms, last_id_seq) = last_id.split_once('-').unwrap();
+        let (cur_id_ms, cur_id_seq) = id.split_once('-').unwrap();
+
+        let last_id_ms = last_id_ms.parse::<u64>().unwrap();
+        let cur_id_ms = cur_id_ms.parse::<u64>().unwrap();
+
+        let last_id_seq = last_id_seq.parse::<u64>().unwrap();
+        let cur_id_seq = cur_id_seq.parse::<u64>().unwrap();
+
+        if cur_id_ms == 0 && cur_id_seq == 0 {
+            bail!("ERR The ID specified in XADD must be greater than 0-0");
+        }
+
+        if cur_id_ms < last_id_ms {
+            bail!(
+                "ERR The ID specified in XADD is equal or smaller than the target stream top item"
+            );
+        }
+
+        if cur_id_ms == last_id_ms && cur_id_seq <= last_id_seq {
+            bail!(
+                "ERR The ID specified in XADD is equal or smaller than the target stream top item"
+            );
+        }
+
+        Ok(())
+    }
+
+    pub fn append_stream_value(
         &mut self,
         key: &String,
         id: &String,
@@ -150,6 +191,16 @@ impl Store {
 
     pub fn get_mut_stream(&mut self, key: &String) -> Option<&mut Stream> {
         let store_entry = self.data.get_mut(key)?;
+
+        if let StoreItem::Stream(stream) = store_entry {
+            Some(stream)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_stream(&self, key: &String) -> Option<&Stream> {
+        let store_entry = self.data.get(key)?;
 
         if let StoreItem::Stream(stream) = store_entry {
             Some(stream)

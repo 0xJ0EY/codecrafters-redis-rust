@@ -9,7 +9,7 @@ mod replication;
 mod store;
 mod util;
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use clap::Parser;
 use commands::parse_client_command;
 use communication::{MessageStream, ReplicaStream, NULL_BULK_STRING};
@@ -321,7 +321,12 @@ async fn handle_client(
                 Command::XADD(params) => {
                     let mut store = store.lock().await;
 
-                    _ = store.set_stream_value(&params.key, &params.id, params.values);
+                    if let Err(err) = store.validate_stream_id(&params.key, &params.id) {
+                        _ = send_error_string(&mut message_stream, err.to_string()).await;
+                        continue;
+                    }
+
+                    _ = store.append_stream_value(&params.key, &params.id, params.values);
 
                     _ = send_bulk_string(&mut message_stream, params.id).await
                 }
@@ -331,6 +336,10 @@ async fn handle_client(
             break;
         }
     }
+}
+
+async fn send_error_string(message_stream: &mut MessageStream, error: String) -> Result<()> {
+    message_stream.write(Message::Error(error)).await
 }
 
 async fn send_simple_str(message_stream: &mut MessageStream, message: &str) -> Result<()> {
