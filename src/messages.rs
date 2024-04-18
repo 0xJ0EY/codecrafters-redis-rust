@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
 use bytes::BytesMut;
-use std::{fmt::format, vec};
+use std::vec;
+
+use crate::store::Stream;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -138,4 +140,24 @@ pub fn unpack_string(message: &Message) -> Result<String> {
         Message::BulkString(s) => Ok(s.clone()),
         _ => Err(anyhow!("Unexpected value to unpack from message")),
     }
+}
+
+pub fn stream_to_message(stream: &Stream) -> Message {
+    let message_content: Vec<_> = stream
+        .entries
+        .iter()
+        .map(|(id, data)| {
+            Message::Array(vec![
+                Message::BulkString(id.to_string()),
+                Message::Array(
+                    data.flatten()
+                        .iter()
+                        .map(|x| Message::BulkString(x.clone()))
+                        .collect::<Vec<_>>(),
+                ),
+            ])
+        })
+        .collect();
+
+    Message::Array(message_content)
 }

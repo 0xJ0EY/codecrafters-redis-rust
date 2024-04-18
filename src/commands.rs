@@ -2,8 +2,8 @@ use std::{collections::HashMap, time::Duration};
 
 use crate::{
     messages::{unpack_string, Message},
-    store::{Entry, StreamData},
-    Command, XADDParams, XRANGEParams,
+    store::{Entry, StreamData, StreamId},
+    Command, XADDParams, XRANGEParams, XREADParams,
 };
 use anyhow::{anyhow, bail, Ok, Result};
 
@@ -171,6 +171,38 @@ pub fn parse_client_command(message: &Message) -> Result<Command> {
             let end = get_string_from_args(&args, 2)?;
 
             Ok(Command::XRANGE(XRANGEParams { key, start, end }))
+        }
+        "xread" => {
+            let mut marker = 0;
+            let first_args = get_string_from_args(&args, 0)?;
+
+            match first_args.to_lowercase().as_str() {
+                "streams" => marker += 1,
+                _ => {
+                    bail!("Unexpected first argument for xread");
+                }
+            }
+
+            if (args.len() - marker) % 2 != 0 {
+                bail!("Unexpected amount of arguments for xread");
+            }
+
+            let amount_of_streams = (args.len() - marker) / 2;
+            let key_marker = marker;
+            let id_marker = key_marker + amount_of_streams;
+
+            let mut requests: Vec<(String, StreamId)> = Vec::with_capacity(amount_of_streams);
+
+            for i in 0..amount_of_streams {
+                let key = get_string_from_args(&args, key_marker + i)?;
+                let id = get_string_from_args(&args, id_marker + i)?;
+
+                let stream_id = StreamId::from(&id);
+
+                requests.push((key, stream_id));
+            }
+
+            Ok(Command::XREAD(XREADParams { requests }))
         }
         _ => Err(anyhow!(format!("Unsupported command, {}", command))),
     }

@@ -269,6 +269,22 @@ impl Store {
         }
     }
 
+    pub fn get_stream_read(&self, key: &String, id: &StreamId) -> Option<Stream> {
+        let stream = self.get_stream(key)?;
+
+        let mut read_entries: Vec<(StreamId, StreamData)> = Vec::new();
+
+        for (entry_id, entry_data) in stream.entries.iter() {
+            if entry_id <= id {
+                continue;
+            }
+
+            read_entries.push((entry_id.clone(), entry_data.clone()));
+        }
+
+        Some(Stream::new(read_entries))
+    }
+
     pub fn get_stream_range(
         &self,
         key: &String,
