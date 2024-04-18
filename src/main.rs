@@ -48,7 +48,7 @@ pub struct XRANGEParams {
 pub struct XREADParams {
     pub block: Option<SystemTime>,
     pub wait: bool,
-    pub requests: Vec<(String, StreamId)>,
+    pub requests: Vec<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -383,11 +383,32 @@ async fn handle_client(
                 }
                 Command::XREAD(params) => {
                     let mut messages: Vec<Message> = Vec::new();
+                    let mut requests: Vec<(String, StreamId)> = Vec::new();
+
+                    for i in 0..params.requests.len() {
+                        let request = params.requests.get(i).unwrap();
+                        let (key, id) = request;
+
+                        let store = store.lock().await;
+
+                        let stream_id = if id == "$" {
+                            let result = store.get_lastest_stream_id(key);
+
+                            match result {
+                                Some(val) => val.clone(),
+                                None => StreamId::from(&"0-0".to_string()),
+                            }
+                        } else {
+                            StreamId::from(id)
+                        };
+
+                        requests.push((key.clone(), stream_id));
+                    }
 
                     loop {
                         messages.clear();
 
-                        for request in params.requests.iter() {
+                        for request in &requests {
                             let (key, id) = request;
 
                             let stream = store.lock().await.get_stream_read(key, id);
@@ -405,7 +426,7 @@ async fn handle_client(
                         }
 
                         if messages.len() == params.requests.len() {
-                            break; // We have messages in the message's vec, so we print those
+                            break; // We have messages in the message's vec, so we send those back
                         } else if let Some(timeout) = params.block {
                             let timed_out = SystemTime::now() > timeout;
 
@@ -416,6 +437,7 @@ async fn handle_client(
                                 tokio::time::sleep(Duration::from_micros(50)).await;
                             }
                         } else {
+                            // Same as the statement above, we send null back, if none is found otherwise we do our best and send back what we got
                             break;
                         }
                     }

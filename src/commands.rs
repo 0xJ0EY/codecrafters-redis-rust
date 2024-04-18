@@ -211,15 +211,13 @@ pub fn parse_client_command(message: &Message) -> Result<Command> {
             let key_marker = marker;
             let id_marker = key_marker + amount_of_streams;
 
-            let mut requests: Vec<(String, StreamId)> = Vec::with_capacity(amount_of_streams);
+            let mut requests: Vec<(String, String)> = Vec::with_capacity(amount_of_streams);
 
             for i in 0..amount_of_streams {
                 let key = get_string_from_args(&args, key_marker + i)?;
                 let id = get_string_from_args(&args, id_marker + i)?;
 
-                let stream_id = StreamId::from(&id);
-
-                requests.push((key, stream_id));
+                requests.push((key, id));
             }
 
             Ok(Command::XREAD(XREADParams {

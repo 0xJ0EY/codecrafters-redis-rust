@@ -166,6 +166,15 @@ impl Store {
         }
     }
 
+    pub fn get_lastest_stream_id(&self, key: &String) -> Option<&StreamId> {
+        let stream = self.get_stream(key)?;
+        let last_entry = stream.entries.last()?;
+
+        let (last_id, _) = last_entry;
+
+        Some(last_id)
+    }
+
     pub fn validate_stream_id(&self, key: &String, id: &String) -> Result<()> {
         let stream = if let Some(stream) = self.get_stream(key) {
             stream
