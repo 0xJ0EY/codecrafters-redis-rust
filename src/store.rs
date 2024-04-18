@@ -1,8 +1,7 @@
 use std::{
-    alloc::LayoutError,
     collections::HashMap,
     env,
-    fmt::format,
+    fmt::Display,
     path::Path,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -56,11 +55,40 @@ pub struct StreamData {
     pub data: HashMap<String, String>,
 }
 
+#[derive(Debug)]
+pub struct StreamId {
+    pub ms: u64,
+    pub seq: u64,
+}
+
+impl From<&String> for StreamId {
+    fn from(value: &String) -> Self {
+        let (ms, seq) = value
+            .split_once('-')
+            .expect("Unable to parse the string into two parts");
+
+        let ms = ms
+            .parse::<u64>()
+            .expect("Unable to parse ms value from string");
+        let seq = seq
+            .parse::<u64>()
+            .expect("Unable to parse seq value from string");
+
+        Self { ms, seq }
+    }
+}
+
+impl Display for StreamId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}-{}", self.ms, self.seq)
+    }
+}
+
 // stream_key   | 1526919030474-0   | temperature 36 humidity 95
 // store key    | id                | stream data
 #[derive(Debug)]
 pub struct Stream {
-    pub entries: Vec<(String, StreamData)>,
+    pub entries: Vec<(StreamId, StreamData)>,
 }
 
 impl Stream {
@@ -134,13 +162,10 @@ impl Store {
 
         let (last_id, _) = stream.entries.last().unwrap();
 
-        let (last_id_ms, last_id_seq) = last_id.split_once('-').unwrap();
+        let (last_id_ms, last_id_seq) = (last_id.ms, last_id.seq);
         let (cur_id_ms, cur_id_seq) = id.split_once('-').unwrap();
 
-        let last_id_ms = last_id_ms.parse::<u64>().unwrap();
         let cur_id_ms = cur_id_ms.parse::<u64>().unwrap();
-
-        let last_id_seq = last_id_seq.parse::<u64>().unwrap();
         let cur_id_seq = cur_id_seq.parse::<u64>().unwrap();
 
         if cur_id_ms == 0 && cur_id_seq == 0 {
@@ -178,7 +203,9 @@ impl Store {
             self.get_mut_stream(key).unwrap()
         };
 
-        stream.entries.push((id.clone(), stream_data));
+        let stream_id = StreamId::from(id);
+
+        stream.entries.push((stream_id, stream_data));
 
         Ok(())
     }
@@ -428,7 +455,7 @@ fn parse_rdb(store: &mut Store, data: &Vec<u8>) {
     }
 }
 
-fn build_stream_id(pattern: &String, last_stream_entry: Option<&String>) -> Option<String> {
+fn build_stream_id(pattern: &String, last_stream_entry: Option<&StreamId>) -> Option<String> {
     let pattern = if pattern.len() < 3 { "*-*" } else { pattern };
 
     let (cur_id_ms, cur_id_seq) = pattern.split_once('-').unwrap();
@@ -446,9 +473,7 @@ fn build_stream_id(pattern: &String, last_stream_entry: Option<&String>) -> Opti
     }
 
     let relevant_stream_entry = if let Some(last_id) = last_stream_entry {
-        let (last_id_ms, _) = last_id.split_once('-').unwrap();
-
-        if last_id_ms == id_ms {
+        if last_id.ms.to_string() == id_ms {
             Some(last_id)
         } else {
             None
@@ -460,10 +485,8 @@ fn build_stream_id(pattern: &String, last_stream_entry: Option<&String>) -> Opti
     let auto_generate_seq = cur_id_seq == "*";
 
     if let Some(last_id) = relevant_stream_entry {
-        let (last_id_ms, last_id_seq) = last_id.split_once('-').unwrap();
-
         if auto_generate_seq {
-            let next_seq = last_id_seq.parse::<u64>().unwrap() + 1;
+            let next_seq = last_id.seq + 1;
             id_seq = next_seq.to_string();
         }
     } else {
