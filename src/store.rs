@@ -552,7 +552,7 @@ fn build_stream_id(pattern: &String, last_stream_entry: Option<&StreamId>) -> Op
 }
 
 pub fn get_start_of_xrange_id(id: &String) -> Option<StreamId> {
-    if id.len() == 1 && id == "-" {
+    if id == "-" {
         return None;
     }
 
@@ -569,6 +569,10 @@ pub fn get_start_of_xrange_id(id: &String) -> Option<StreamId> {
 }
 
 pub fn get_end_of_xrange_id(id: &String, key: &String, store: &Store) -> Option<StreamId> {
+    if id == "+" {
+        return None;
+    }
+
     let template = if id.contains("-") {
         id.clone()
     } else {
