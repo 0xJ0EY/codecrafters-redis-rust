@@ -552,6 +552,10 @@ fn build_stream_id(pattern: &String, last_stream_entry: Option<&StreamId>) -> Op
 }
 
 pub fn get_start_of_xrange_id(id: &String) -> Option<StreamId> {
+    if id.len() == 1 && id == "-" {
+        return None;
+    }
+
     let (ms, seq) = if let Some(split) = id.split_once('-') {
         split
     } else {
