@@ -1,11 +1,12 @@
 use std::collections::VecDeque;
 
 use anyhow::Result;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 
 use crate::messages::Message;
-
-pub const NULL_BULK_STRING: &[u8] = b"$-1\r\n";
 
 pub struct MessageStream {
     pub stream: TcpStream,
@@ -14,7 +15,10 @@ pub struct MessageStream {
 
 impl MessageStream {
     pub fn bind(stream: TcpStream) -> Self {
-        Self { stream, read_cache: VecDeque::new() }
+        Self {
+            stream,
+            read_cache: VecDeque::new(),
+        }
     }
 
     pub async fn write_raw(&mut self, data: &[u8]) -> Result<()> {
@@ -61,21 +65,21 @@ impl MessageStream {
 #[derive(Debug)]
 pub enum ReplicaMessage {
     RdbFile(String),
-    Response(Message)
+    Response(Message),
 }
 
 impl ReplicaMessage {
     pub fn is_rdb_file(&self) -> bool {
         match self {
             Self::RdbFile(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_response(&self) -> bool {
         match self {
             Self::Response(_) => true,
-            _ => false
+            _ => false,
         }
     }
 }
@@ -83,12 +87,15 @@ impl ReplicaMessage {
 #[derive(Debug)]
 pub struct ReplicaStream {
     pub stream: TcpStream,
-    pub read_cache: VecDeque<ReplicaMessage>
+    pub read_cache: VecDeque<ReplicaMessage>,
 }
 
 impl ReplicaStream {
     pub fn bind(stream: TcpStream) -> Self {
-        Self { stream, read_cache: VecDeque::new() }
+        Self {
+            stream,
+            read_cache: VecDeque::new(),
+        }
     }
 
     pub async fn write_raw(&mut self, data: &[u8]) -> Result<()> {
@@ -104,7 +111,9 @@ impl ReplicaStream {
     }
 
     pub async fn get_rdb(&mut self) -> Option<String> {
-        if self.read_cache.is_empty() && !self.read_stream().await { return None; }
+        if self.read_cache.is_empty() && !self.read_stream().await {
+            return None;
+        }
 
         let index = self.read_cache.iter().position(|x| x.is_rdb_file());
 
@@ -118,7 +127,9 @@ impl ReplicaStream {
     }
 
     pub async fn get_response(&mut self) -> Option<Message> {
-        if self.read_cache.is_empty() && !self.read_stream().await { return None; }
+        if self.read_cache.is_empty() && !self.read_stream().await {
+            return None;
+        }
 
         let index = self.read_cache.iter().position(|x| x.is_response());
 
@@ -144,14 +155,14 @@ impl ReplicaStream {
                     b'$' => {
                         index += 93; // hardcoded the empty rdb file length
                         ReplicaMessage::RdbFile(String::from("foobar"))
-                    },
-                    b'+' |b'*' => { 
+                    }
+                    b'+' | b'*' => {
                         let (message, offset) = Message::parse(data).unwrap();
 
                         index += offset;
 
                         ReplicaMessage::Response(message)
-                    },
+                    }
                     _ => {
                         todo!("unsupported file format");
                     }

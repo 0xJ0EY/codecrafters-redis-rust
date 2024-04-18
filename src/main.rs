@@ -1,4 +1,9 @@
-use std::{net::IpAddr, sync::Arc, time::Duration, vec};
+use std::{
+    net::IpAddr,
+    sync::Arc,
+    time::{Duration, SystemTime},
+    vec,
+};
 
 mod commands;
 mod communication;
@@ -12,7 +17,7 @@ mod util;
 use anyhow::Result;
 use clap::Parser;
 use commands::parse_client_command;
-use communication::{MessageStream, ReplicaStream, NULL_BULK_STRING};
+use communication::{MessageStream, ReplicaStream};
 use configuration::ServerInformation;
 use info::build_replication_response;
 use messages::{stream_to_message, Message};
@@ -41,6 +46,8 @@ pub struct XRANGEParams {
 
 #[derive(Debug)]
 pub struct XREADParams {
+    pub block: Option<SystemTime>,
+    pub wait: bool,
     pub requests: Vec<(String, StreamId)>,
 }
 
@@ -197,7 +204,7 @@ async fn handle_client(
                             .write(Message::bulk_string(entry.value.clone()))
                             .await;
                     } else {
-                        _ = message_stream.write_raw(NULL_BULK_STRING).await;
+                        _ = message_stream.write(Message::Null).await;
                     }
                 }
                 Command::Info(section) => match section.to_ascii_lowercase().as_str() {
@@ -375,33 +382,49 @@ async fn handle_client(
                     _ = message_stream.write(message).await;
                 }
                 Command::XREAD(params) => {
-                    let store = store.lock().await;
-
                     let mut messages: Vec<Message> = Vec::new();
 
-                    for request in params.requests.iter() {
-                        let (key, id) = request;
-                        let stream = store.get_stream_read(key, id);
+                    loop {
+                        messages.clear();
 
-                        if stream.is_none() {
-                            _ = send_error_string(
-                                &mut message_stream,
-                                "ERR Unable to read stream".to_string(),
-                            )
-                            .await;
+                        for request in params.requests.iter() {
+                            let (key, id) = request;
 
-                            continue;
+                            let stream = store.lock().await.get_stream_read(key, id);
+
+                            if stream.is_none() {
+                                continue;
+                            }
+
+                            let stream = stream.unwrap();
+
+                            messages.push(Message::Array(vec![
+                                Message::BulkString(key.clone()),
+                                stream_to_message(&stream),
+                            ]));
                         }
 
-                        let stream = stream.unwrap();
+                        if messages.len() == params.requests.len() {
+                            break; // We have messages in the message's vec, so we print those
+                        } else if let Some(timeout) = params.block {
+                            let timed_out = SystemTime::now() > timeout;
 
-                        messages.push(Message::Array(vec![
-                            Message::BulkString(key.clone()),
-                            stream_to_message(&stream),
-                        ]));
+                            if !params.wait && timed_out {
+                                // Maybe clear the messages vec before returning? now we send null back, if none is found otherwise we do our best and send back what we got
+                                break;
+                            } else {
+                                tokio::time::sleep(Duration::from_micros(50)).await;
+                            }
+                        } else {
+                            break;
+                        }
                     }
 
-                    _ = message_stream.write(Message::Array(messages)).await;
+                    if messages.len() == 0 {
+                        _ = message_stream.write(Message::Null).await;
+                    } else {
+                        _ = message_stream.write(Message::Array(messages)).await;
+                    }
                 }
             }
         } else {

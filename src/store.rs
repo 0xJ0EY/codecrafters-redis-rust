@@ -282,6 +282,10 @@ impl Store {
             read_entries.push((entry_id.clone(), entry_data.clone()));
         }
 
+        if read_entries.len() == 0 {
+            return None;
+        }
+
         Some(Stream::new(read_entries))
     }
 

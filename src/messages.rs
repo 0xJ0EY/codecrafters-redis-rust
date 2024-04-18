@@ -4,6 +4,8 @@ use std::vec;
 
 use crate::store::Stream;
 
+pub const NULL_BULK_STRING: &str = "$-1\r\n";
+
 #[derive(Debug, Clone)]
 pub enum Message {
     Error(String),
@@ -11,6 +13,7 @@ pub enum Message {
     BulkString(String),
     Array(Vec<Message>),
     Integer(isize),
+    Null,
 }
 
 impl Message {
@@ -29,6 +32,7 @@ impl Message {
                 Ok(format!("*{}\r\n{}", parts.len(), parts.join("")))
             }
             Message::Integer(value) => Ok(format!(":{}\r\n", value)),
+            Message::Null => Ok(NULL_BULK_STRING.to_string()),
         }
     }
 

@@ -1,4 +1,7 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime},
+};
 
 use crate::{
     messages::{unpack_string, Message},
@@ -176,8 +179,25 @@ pub fn parse_client_command(message: &Message) -> Result<Command> {
             let mut marker = 0;
             let first_args = get_string_from_args(&args, 0)?;
 
+            let mut expiration_time: Option<SystemTime> = None;
+            let mut wait = false;
+
             match first_args.to_lowercase().as_str() {
                 "streams" => marker += 1,
+                "block" => {
+                    let duration = get_string_from_args(&args, 1)?;
+
+                    let duration = duration
+                        .parse::<u64>()
+                        .expect("Duration is not a valid number");
+
+                    wait = duration == 0;
+
+                    let exp_time = SystemTime::now() + Duration::from_millis(duration);
+                    expiration_time = Some(exp_time);
+
+                    marker += 3 // [block][duration][streams][...data];
+                }
                 _ => {
                     bail!("Unexpected first argument for xread");
                 }
@@ -202,7 +222,11 @@ pub fn parse_client_command(message: &Message) -> Result<Command> {
                 requests.push((key, stream_id));
             }
 
-            Ok(Command::XREAD(XREADParams { requests }))
+            Ok(Command::XREAD(XREADParams {
+                block: expiration_time,
+                wait,
+                requests,
+            }))
         }
         _ => Err(anyhow!(format!("Unsupported command, {}", command))),
     }
