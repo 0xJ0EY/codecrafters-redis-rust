@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use crate::{
     messages::{unpack_string, Message},
     store::{Entry, StreamData},
-    Command, XADDParams,
+    Command, XADDParams, XRANGEParams,
 };
 use anyhow::{anyhow, bail, Ok, Result};
 
@@ -164,6 +164,13 @@ pub fn parse_client_command(message: &Message) -> Result<Command> {
                 id,
                 values: data,
             }))
+        }
+        "xrange" => {
+            let key = get_string_from_args(&args, 0)?;
+            let start = get_string_from_args(&args, 1)?;
+            let end = get_string_from_args(&args, 2)?;
+
+            Ok(Command::XRANGE(XRANGEParams { key, start, end }))
         }
         _ => Err(anyhow!(format!("Unsupported command, {}", command))),
     }

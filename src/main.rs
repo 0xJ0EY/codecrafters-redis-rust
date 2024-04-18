@@ -1,4 +1,4 @@
-use std::{net::IpAddr, sync::Arc, time::Duration, vec};
+use std::{borrow::Borrow, net::IpAddr, sync::Arc, time::Duration, vec};
 
 mod commands;
 mod communication;
@@ -17,7 +17,10 @@ use configuration::ServerInformation;
 use info::build_replication_response;
 use messages::Message;
 use replication::{replication_channel, ReplicaCommand};
-use store::{full_resync_rdb, read_rdb_from_file, Entry, EntryValue, Store, StreamData};
+use store::{
+    full_resync_rdb, get_end_of_xrange_id, get_start_of_xrange_id, read_rdb_from_file, Entry,
+    EntryValue, Store, StreamData,
+};
 use tokio::{net::TcpListener, sync::Mutex};
 
 use crate::replication::{handle_handshake_with_master, needs_to_replicate};
@@ -27,6 +30,13 @@ pub struct XADDParams {
     pub key: String,
     pub id: String,
     pub values: StreamData,
+}
+
+#[derive(Debug)]
+pub struct XRANGEParams {
+    pub key: String,
+    pub start: String,
+    pub end: String,
 }
 
 #[derive(Debug)]
@@ -43,6 +53,7 @@ enum Command {
     Keys(String),
     Type(String),
     XADD(XADDParams),
+    XRANGE(XRANGEParams),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -333,6 +344,46 @@ async fn handle_client(
                     _ = store.append_stream_value(&params.key, &id, params.values);
 
                     _ = send_bulk_string(&mut message_stream, id).await
+                }
+                Command::XRANGE(params) => {
+                    let store = store.lock().await;
+
+                    let start = get_start_of_xrange_id(&params.start);
+                    let end = get_end_of_xrange_id(&params.end, &params.key, &store);
+
+                    let stream = store.get_stream_range(&params.key, start.as_ref(), end.as_ref());
+
+                    if stream.is_none() {
+                        _ = send_error_string(
+                            &mut message_stream,
+                            "ERR Unable to read stream".to_string(),
+                        )
+                        .await;
+
+                        continue;
+                    }
+
+                    let stream = stream.unwrap();
+
+                    let message_content: Vec<_> = stream
+                        .entries
+                        .iter()
+                        .map(|(id, data)| {
+                            Message::Array(vec![
+                                Message::BulkString(id.to_string()),
+                                Message::Array(
+                                    data.flatten()
+                                        .iter()
+                                        .map(|x| Message::BulkString(x.clone()))
+                                        .collect::<Vec<_>>(),
+                                ),
+                            ])
+                        })
+                        .collect();
+
+                    let message = Message::Array(message_content);
+
+                    _ = message_stream.write(message).await;
                 }
             }
         } else {

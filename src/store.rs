@@ -50,12 +50,25 @@ impl EntryValue for Entry {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StreamData {
     pub data: HashMap<String, String>,
 }
 
-#[derive(Debug)]
+impl StreamData {
+    pub fn flatten(&self) -> Vec<String> {
+        let mut result = Vec::with_capacity(self.data.len() * 2);
+
+        for (key, value) in self.data.iter() {
+            result.push(key.clone());
+            result.push(value.clone());
+        }
+
+        result
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct StreamId {
     pub ms: u64,
     pub seq: u64,
@@ -96,6 +109,10 @@ impl Stream {
         Self {
             entries: Vec::new(),
         }
+    }
+
+    pub fn new(entries: Vec<(StreamId, StreamData)>) -> Self {
+        Self { entries }
     }
 }
 
@@ -250,6 +267,38 @@ impl Store {
         } else {
             None
         }
+    }
+
+    pub fn get_stream_range(
+        &self,
+        key: &String,
+        start: Option<&StreamId>,
+        end: Option<&StreamId>,
+    ) -> Option<Stream> {
+        let stream = self.get_stream(key)?;
+
+        let mut range_entries: Vec<(StreamId, StreamData)> = Vec::new();
+
+        for i in 0..stream.entries.len() {
+            let cur_stream_entry = stream.entries.get(i)?;
+            let (cur_stream_id, _) = &cur_stream_entry;
+
+            if let Some(start) = start {
+                if cur_stream_id < start {
+                    continue;
+                }
+            }
+
+            if let Some(end) = end {
+                if cur_stream_id > end {
+                    break;
+                }
+            }
+
+            range_entries.push(cur_stream_entry.clone());
+        }
+
+        Some(Stream::new(range_entries))
     }
 
     pub fn len(&self) -> usize {
@@ -500,4 +549,29 @@ fn build_stream_id(pattern: &String, last_stream_entry: Option<&StreamId>) -> Op
     }
 
     Some(format!("{}-{}", id_ms, id_seq))
+}
+
+pub fn get_start_of_xrange_id(id: &String) -> Option<StreamId> {
+    let (ms, seq) = if let Some(split) = id.split_once('-') {
+        split
+    } else {
+        (id.as_str(), "0")
+    };
+
+    let ms = ms.parse::<u64>().expect("Unable to parse ms");
+    let seq = seq.parse::<u64>().expect("Unable to parse seq");
+
+    Some(StreamId { ms, seq })
+}
+
+pub fn get_end_of_xrange_id(id: &String, key: &String, store: &Store) -> Option<StreamId> {
+    let template = if id.contains("-") {
+        id.clone()
+    } else {
+        format!("{}-*", id)
+    };
+
+    let id = store.auto_generate_stream_id(key, &template)?;
+
+    Some(StreamId::from(&id))
 }
