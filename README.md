@@ -1,35 +1,15 @@
-[![progress-banner](https://backend.codecrafters.io/progress/redis/f24294c6-7886-4337-8a77-b15129fa97ae)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# Codecrafters Redis clone
+This project is an implementation of the ["Build Your Own Redis" challenge by codecrafters.io](https://app.codecrafters.io/courses/redis) in Rust.
+As of June 3rd, it passes all the tests within the Codecrafters project.
 
-This is a starting point for Rust solutions to the
-["Build Your Own Redis" Challenge](https://codecrafters.io/challenges/redis).
+Please do not use this as an actual replacement for Redis.
 
-In this challenge, you'll build a toy Redis clone that's capable of handling
-basic commands like `PING`, `SET` and `GET`. Along the way we'll learn about
-event loops, the Redis protocol and more.
+# Build
+Its a simple Rust project, so you run it by using cargo, like: `cargo run`
+And use the official Redis client to connect to the server.
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
-
-# Passing the first stage
-
-The entry point for your Redis implementation is in `src/main.rs`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
-
-```sh
-git add .
-git commit -m "pass 1st stage" # any msg
-git push origin master
-```
-
-That's all!
-
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `cargo (1.54)` installed locally
-1. Run `./spawn_redis_server.sh` to run your Redis server, which is implemented
-   in `src/main.rs`. This command compiles your Rust project, so it might be
-   slow the first time you run it. Subsequent runs will be fast.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+# Features
+- Basic key store functionality
+- Replication
+- RDB persistence
+- Streams
